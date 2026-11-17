@@ -296,13 +296,23 @@
 
                 <!-- Row 3: Fallback Capture/Upload Barcode Image (100% mobile compatible) -->
                 <div class="flex items-center gap-1.5">
-                  <label class="flex-1 cursor-pointer bg-orange-50 hover:bg-orange-100 text-[#f26f21] border border-orange-200 font-bold text-[11px] py-2 px-2.5 rounded-lg flex items-center justify-center gap-1.5 transition active:scale-95">
+                  <label onclick="unlockAudioAndSpeech()" class="flex-1 cursor-pointer bg-orange-50 hover:bg-orange-100 text-[#f26f21] border border-orange-200 font-bold text-[11px] py-2 px-2.5 rounded-lg flex items-center justify-center gap-1.5 transition active:scale-95">
                     <i data-lucide="image-plus" class="w-3.5 h-3.5"></i>
                     <span>📸 Chụp / Tải ảnh mã vạch</span>
                     <input id="barcode-file-input" type="file" accept="image/*" capture="environment" class="hidden" onchange="handleBarcodeImageUpload(event)" />
                   </label>
                   <button onclick="downloadSampleBarcodeImage()" class="bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-semibold py-2 px-2 rounded-lg transition" title="Tải ảnh mã vạch mẫu về máy để test tải ảnh">
                     <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                  </button>
+                </div>
+
+                <!-- Row 3.5: 2 Nút bấm Kiểm tra Âm thanh & Giọng đọc AI trực quan -->
+                <div class="grid grid-cols-2 gap-1.5 pt-1 border-t border-slate-200/80">
+                  <button onclick="testAudioSuccessButton()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10.5px] py-2 px-2 rounded-lg shadow-sm flex items-center justify-center gap-1 transition active:scale-95" title="Phát 1 tiếng Bíp 900Hz (0.15s) + Đọc to: XÁC NHẬN THÀNH CÔNG">
+                    <span>🔊 Test: Xác nhận thành công</span>
+                  </button>
+                  <button onclick="testAudioFailButton()" class="bg-red-600 hover:bg-red-700 text-white font-bold text-[10.5px] py-2 px-2 rounded-lg shadow-sm flex items-center justify-center gap-1 transition active:scale-95" title="Phát 2 tiếng Bíp trầm 200Hz + Đọc to: KHÔNG THỂ XÁC NHẬN">
+                    <span>🔊 Test: Không thể xác nhận</span>
                   </button>
                 </div>
 
@@ -1006,7 +1016,7 @@
               <div class="flex items-center justify-between p-3.5 bg-slate-50 rounded-xl border border-slate-200">
                 <div>
                   <div class="font-bold text-slate-800">Giọng đọc AI Tiếng Việt (SpeechSynthesis vi-VN)</div>
-                  <div class="text-xs text-slate-500">Tự động phát giọng đọc "XÁC THỰC THÀNH CÔNG" hoặc "KHÔNG THỂ XÁC THỰC" khi quét mã</div>
+                  <div class="text-xs text-slate-500">Tự động phát giọng đọc "XÁC NHẬN THÀNH CÔNG" hoặc "KHÔNG THỂ XÁC NHẬN" khi quét mã</div>
                 </div>
                 <input id="setting-voice-toggle" type="checkbox" checked onchange="toggleVoiceSetting(this.checked)" class="w-5 h-5 accent-[#005f69] cursor-pointer" />
               </div>

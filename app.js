@@ -140,6 +140,11 @@ let currentDisplayedStudent = null;
 let currentModalStudent = null;
 let currentMobileStudentMssv = "31251570240"; // Mặc định Hồ Thị Mỹ Hường (hoặc chọn bất kỳ ai trong 10 SV)
 
+// Audio & Speech Unlock State (100% Mobile iOS/Android & Laptop compatibility)
+let sharedAudioCtx = null;
+let isAudioSpeechUnlocked = false;
+let fallbackTtsAudio = null;
+
 // Activity Logs & Alerts
 let activityLogs = [];
 let systemAlerts = [];
@@ -153,6 +158,16 @@ document.addEventListener("DOMContentLoaded", () => {
   initDefaultLogsAndAlerts();
   populateZoneDropdown();
   populateStudentDropdowns();
+
+  // Khởi tạo danh sách giọng đọc tiếng Việt (vi / vi-VN) và đăng ký mở khóa âm thanh trên Mobile
+  initVoiceSynthesisVoices();
+  ["touchstart", "pointerdown", "click"].forEach(evtName => {
+    document.addEventListener(evtName, () => {
+      if (!isAudioSpeechUnlocked) {
+        unlockAudioAndSpeech();
+      }
+    }, { once: true, passive: true });
+  });
 
   // Render initial UI
   render20SlotGrid();
@@ -697,6 +712,8 @@ function getSupportedFormats() {
 }
 
 async function startCameraScanner(facingModeOrDeviceId) {
+  // Mở khóa âm thanh & giọng đọc ngay khi người dùng chạm nút Bật Camera trên điện thoại
+  unlockAudioAndSpeech();
   switchScanTab("barcode");
   const readerEl = document.getElementById("qr-reader");
   const idlePreviewEl = document.getElementById("scanner-idle-preview");
@@ -785,6 +802,7 @@ async function startCameraScanner(facingModeOrDeviceId) {
 
 async function onSelectCameraDevice(deviceId) {
   if (!deviceId) return;
+  unlockAudioAndSpeech();
   await startCameraScanner(deviceId);
 }
 
@@ -816,6 +834,8 @@ async function stopCameraScanner() {
 // QUÉT ẢNH CHỤP / TẢI LÊN MÃ VẠCH (ĐA TẦNG XỬ LÝ ĐỂ NHẠY 100% TRÊN MỌI ĐIỆN THOẠI)
 // ==========================================================================
 async function handleBarcodeImageUpload(event) {
+  // Mở khóa âm thanh ngay khi người dùng chọn/chụp ảnh
+  unlockAudioAndSpeech();
   const file = event.target.files && event.target.files[0];
   if (!file) return;
 
@@ -871,11 +891,14 @@ async function handleBarcodeImageUpload(event) {
     }
   } catch (err) {
     console.warn("Không đọc được mã vạch từ bức ảnh này:", err);
+    // TRƯỜNG HỢP 2: Ảnh chụp bị mờ không quét được mã vạch -> Phát 2 tiếng Bíp trầm 200Hz + Đọc to "KHÔNG THỂ XÁC NHẬN"
+    playFeedbackBeep(false);
+    speakVietnamese("KHÔNG THỂ XÁC NHẬN");
     updateScanStatusBanner(
       false,
-      "Ảnh bị mờ hoặc chói sáng! Hãy chụp rõ vùng mã vạch hoặc chọn nhanh SV trong danh sách."
+      "KHÔNG THỂ XÁC NHẬN! Ảnh chụp bị mờ hoặc không tìm thấy mã vạch."
     );
-    speakVietnamese("Không thể xác thực");
+    renderUnknownScannedCard("Ảnh mờ / Lỗi mã");
   }
 
   event.target.value = "";
@@ -915,7 +938,11 @@ function preprocessBarcodeImageFile(file) {
 // ==========================================================================
 function onBarcodeScannedSuccess(rawCode) {
   const cleanCode = String(rawCode || "").trim();
-  if (!cleanCode) return;
+  if (!cleanCode) {
+    playFeedbackBeep(false);
+    speakVietnamese("KHÔNG THỂ XÁC NHẬN");
+    return;
+  }
 
   const nowMs = Date.now();
   // Chống quét trùng liên tiếp trong vòng 2.5 giây khi giữ thẻ trước webcam
@@ -932,11 +959,11 @@ function onBarcodeScannedSuccess(rawCode) {
   );
 
   if (student) {
-    // Phát âm thanh & giọng đọc AI Tiếng Việt: "XÁC THỰC THÀNH CÔNG"
+    // TRƯỜNG HỢP 1: Khớp MSSV trong Database -> Phát 1 tiếng Bíp thanh (900Hz, 0.15s) + Đọc to "XÁC NHẬN THÀNH CÔNG"
     playFeedbackBeep(true);
-    speakVietnamese("XÁC THỰC THÀNH CÔNG");
+    speakVietnamese("XÁC NHẬN THÀNH CÔNG");
 
-    // Tự động đảo trạng thái 2 chiều (Đang gửi -> Check-out Ra; Chưa gửi / Đặt trước -> Check-in Vào)
+    // Tự động đảo trạng thái 2 chiều (Đang sử dụng -> Check-out Ra; Chưa gửi / Đặt trước -> Check-in Vào)
     let actionLabel = "";
     let isCheckIn = true;
 
@@ -994,7 +1021,7 @@ function onBarcodeScannedSuccess(rawCode) {
     }
 
     saveDatabase();
-    updateScanStatusBanner(true, `XÁC THỰC THÀNH CÔNG! (${student.hoTen})`);
+    updateScanStatusBanner(true, `XÁC NHẬN THÀNH CÔNG! (${student.hoTen})`);
     renderScannedStudentCard(student, actionLabel, isCheckIn);
 
     // Chuyển sơ đồ về Khu A và chọn đúng ô của sinh viên vừa quét để thấy hiệu ứng đổi màu trực tiếp
@@ -1010,11 +1037,11 @@ function onBarcodeScannedSuccess(rawCode) {
     renderCampusMapViews();
     renderMobileStudentApp();
   } else {
-    // MÃ LẠ KHÔNG CÓ TRONG DATABASE -> ĐỌC TO "KHÔNG THỂ XÁC THỰC"
+    // TRƯỜNG HỢP 2: Mã KHÔNG có trong Database -> Phát 2 tiếng Bíp trầm 200Hz + Đọc to "KHÔNG THỂ XÁC NHẬN"
     playFeedbackBeep(false);
-    speakVietnamese("KHÔNG THỂ XÁC THỰC");
+    speakVietnamese("KHÔNG THỂ XÁC NHẬN");
 
-    updateScanStatusBanner(false, `KHÔNG THỂ XÁC THỰC! Mã lạ: ${cleanCode}`);
+    updateScanStatusBanner(false, `KHÔNG THỂ XÁC NHẬN! Mã lạ: ${cleanCode}`);
     renderUnknownScannedCard(cleanCode);
 
     addActivityLog({
@@ -1061,11 +1088,12 @@ function assignOrActivateStudentSlot(student) {
     targetSlot.studentName = student.hoTen;
     targetSlot.licensePlate = student.bienSo;
     targetSlot.vehicleType = student.loaiXe || "Xe máy";
-    targetSlot.note = `Đang đỗ (${student.dongXe})`;
+    targetSlot.note = `Đang sử dụng (${student.dongXe})`;
   }
 }
 
 function triggerQuickStudentScan() {
+  unlockAudioAndSpeech();
   const select = document.getElementById("quick-student-select");
   if (!select || !select.value) return;
   lastScannedCode = ""; // Cho phép test bấm liên tục để đổi chiều Vào <-> Ra
@@ -1073,9 +1101,13 @@ function triggerQuickStudentScan() {
 }
 
 function triggerManualCodeScan() {
+  unlockAudioAndSpeech();
   const input = document.getElementById("manual-scan-input");
   if (!input || !input.value.trim()) {
-    alert("Vui lòng nhập MSSV, Biển số hoặc một mã bất kỳ để kiểm tra!");
+    playFeedbackBeep(false);
+    speakVietnamese("KHÔNG THỂ XÁC NHẬN");
+    updateScanStatusBanner(false, "KHÔNG THỂ XÁC NHẬN! Vui lòng nhập MSSV hoặc mã vạch.");
+    renderUnknownScannedCard("Trống");
     return;
   }
   lastScannedCode = "";
@@ -1083,6 +1115,7 @@ function triggerManualCodeScan() {
 }
 
 function simulateStrangerScan() {
+  unlockAudioAndSpeech();
   const randomStrangerCode = "99998888" + Math.floor(100 + Math.random() * 899);
   const input = document.getElementById("manual-scan-input");
   if (input) input.value = randomStrangerCode;
@@ -1186,7 +1219,7 @@ function renderUnknownScannedCard(strangerCode) {
     avatarEl.textContent = "!";
     avatarEl.className = "w-8 h-8 rounded-full bg-red-600 text-white font-extrabold text-xs flex items-center justify-center mb-1 shadow";
   }
-  if (nameEl) nameEl.textContent = "KHÔNG THỂ XÁC THỰC";
+  if (nameEl) nameEl.textContent = "KHÔNG THỂ XÁC NHẬN";
   if (mssvEl) mssvEl.textContent = strangerCode;
   if (dobEl) dobEl.textContent = "Không có dữ liệu";
   if (plateEl) plateEl.textContent = "Chưa đăng ký";
@@ -1220,69 +1253,219 @@ function resetScannerCard() {
 }
 
 // ==========================================================================
-// GIỌNG ĐỌC AI TIẾNG VIỆT (SPEECH SYNTHESIS VI-VN) & ÂM BÁO WEB AUDIO
+// GIỌNG ĐỌC AI TIẾNG VIỆT (WEB SPEECH API + AUDIO UNLOCK + AUDIO TTS DỰ PHÒNG)
 // ==========================================================================
-function speakVietnamese(text) {
-  if (!voiceAIEnabled || !("speechSynthesis" in window)) return;
-  try {
-    window.speechSynthesis.cancel();
-    const utter = new SpeechSynthesisUtterance(text);
-    utter.lang = "vi-VN";
-    utter.rate = 1.05;
-    utter.pitch = 1.0;
-
-    const voices = window.speechSynthesis.getVoices();
-    const viVoice = voices.find(v => v.lang && v.lang.toLowerCase().includes("vi"));
-    if (viVoice) {
-      utter.voice = viVoice;
-    }
-    window.speechSynthesis.speak(utter);
-  } catch (e) {
-    console.warn("SpeechSynthesis error:", e);
+function initVoiceSynthesisVoices() {
+  if ("speechSynthesis" in window) {
+    window.speechSynthesis.getVoices();
+    window.speechSynthesis.onvoiceschanged = () => {
+      window.speechSynthesis.getVoices();
+    };
   }
 }
 
-function testVoiceAI() {
+function getSharedAudioContext() {
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtx) return null;
+  if (!sharedAudioCtx) {
+    sharedAudioCtx = new AudioCtx();
+  }
+  if (sharedAudioCtx.state === "suspended") {
+    sharedAudioCtx.resume().catch(() => {});
+  }
+  return sharedAudioCtx;
+}
+
+/**
+ * Cơ chế "Mở khóa âm thanh" (Audio/Speech Unlock) cho Safari iOS & Chrome Android:
+ * Gọi ngay khi người dùng chạm vào [Bật Camera], [Chụp ảnh mã vạch], [Kiểm tra] hoặc nút Test.
+ */
+function unlockAudioAndSpeech() {
+  try {
+    const ctx = getSharedAudioContext();
+    if (ctx && !isAudioSpeechUnlocked) {
+      // Phát 1 xung âm thanh rỗng (gain = 0) để mở khóa Web Audio API trên iOS/Android
+      const buffer = ctx.createBuffer(1, 1, 22050);
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(ctx.destination);
+      if (source.start) source.start(0);
+    }
+
+    if ("speechSynthesis" in window && !isAudioSpeechUnlocked) {
+      // Mồi một SpeechSynthesisUtterance('') rỗng để mở quyền phát loa trong callback Camera
+      const primeUtter = new SpeechSynthesisUtterance("");
+      primeUtter.lang = "vi-VN";
+      primeUtter.volume = 0;
+      window.speechSynthesis.speak(primeUtter);
+    }
+
+    if (!fallbackTtsAudio) {
+      fallbackTtsAudio = new Audio();
+      fallbackTtsAudio.preload = "auto";
+    }
+
+    isAudioSpeechUnlocked = true;
+  } catch (e) {
+    console.warn("unlockAudioAndSpeech warning:", e);
+  }
+}
+
+function findBestVietnameseVoice() {
+  if (!("speechSynthesis" in window)) return null;
+  const voices = window.speechSynthesis.getVoices() || [];
+  // Ưu tiên 1: lang === 'vi-VN' hoặc 'vi_VN'
+  let viVoice = voices.find(v => v.lang && v.lang.toLowerCase().replace("_", "-") === "vi-vn");
+  // Ưu tiên 2: lang chứa 'vi'
+  if (!viVoice) {
+    viVoice = voices.find(v => v.lang && v.lang.toLowerCase().includes("vi"));
+  }
+  // Ưu tiên 3: tên giọng đọc chứa Vietnamese / Tiếng Việt / HoaiMy / NamMinh / Linh
+  if (!viVoice) {
+    viVoice = voices.find(v => v.name && /vietnam|tiếng việt|hoaimy|namminh|linh|an/i.test(v.name));
+  }
+  return viVoice || null;
+}
+
+function playFallbackVietnameseAudioTTS(text) {
+  try {
+    const encoded = encodeURIComponent(text);
+    const ttsUrl = `https://translate.googleapis.com/translate_tts?ie=UTF-8&q=${encoded}&tl=vi&client=tw-ob`;
+    if (!fallbackTtsAudio) {
+      fallbackTtsAudio = new Audio();
+    }
+    fallbackTtsAudio.src = ttsUrl;
+    fallbackTtsAudio.rate = 1.05;
+    const playPromise = fallbackTtsAudio.play();
+    if (playPromise !== undefined) {
+      playPromise.catch(() => {
+        // Nếu trình duyệt chặn CORS audio stream hoặc đang offline, dùng Web Speech API mặc định
+        if ("speechSynthesis" in window) {
+          const fallbackUtter = new SpeechSynthesisUtterance(text);
+          fallbackUtter.lang = "vi-VN";
+          fallbackUtter.rate = 1.0;
+          window.speechSynthesis.speak(fallbackUtter);
+        }
+      });
+    }
+  } catch (err) {
+    console.warn("Fallback TTS error:", err);
+  }
+}
+
+function speakVietnamese(text) {
+  if (!voiceAIEnabled) return;
+  try {
+    getSharedAudioContext();
+
+    if ("speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.lang = "vi-VN";
+      utter.rate = 1.02;
+      utter.pitch = 1.0;
+      utter.volume = 1.0;
+
+      const viVoice = findBestVietnameseVoice();
+      if (viVoice) {
+        utter.voice = viVoice;
+        utter.onerror = () => {
+          playFallbackVietnameseAudioTTS(text);
+        };
+        window.speechSynthesis.speak(utter);
+        return;
+      } else {
+        // Nếu thiết bị không có sẵn gói giọng vi-VN offline, thử phát cả Web Speech lẫn luồng Audio TTS tiếng Việt dự phòng
+        utter.onerror = () => {};
+        window.speechSynthesis.speak(utter);
+        playFallbackVietnameseAudioTTS(text);
+        return;
+      }
+    }
+
+    // Trường hợp trình duyệt không hỗ trợ speechSynthesis
+    playFallbackVietnameseAudioTTS(text);
+  } catch (e) {
+    console.warn("speakVietnamese error:", e);
+    playFallbackVietnameseAudioTTS(text);
+  }
+}
+
+/**
+ * Phát tiếng Bíp bằng Web Audio API:
+ * - TRƯỜNG HỢP 1 (isSuccess = true): Phát 1 tiếng "Bíp" thanh (tần số 900Hz, dài 0.15s)
+ * - TRƯỜNG HỢP 2 (isSuccess = false): Phát 2 tiếng "Bíp" trầm báo lỗi (tần số 200Hz)
+ */
+function playFeedbackBeep(isSuccess) {
+  try {
+    const ctx = getSharedAudioContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+
+    if (isSuccess) {
+      // 1 tiếng "Bíp" thanh: tần số 900Hz, dài 0.15s
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(900, now);
+
+      gain.gain.setValueAtTime(0.28, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.15);
+    } else {
+      // 2 tiếng "Bíp" trầm báo lỗi: tần số 200Hz
+      const playLowBeep = (startTime, duration) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sawtooth";
+        osc.frequency.setValueAtTime(200, startTime);
+
+        gain.gain.setValueAtTime(0.32, startTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(startTime);
+        osc.stop(startTime + duration);
+      };
+
+      playLowBeep(now, 0.15);
+      playLowBeep(now + 0.21, 0.18);
+    }
+  } catch (e) {
+    console.warn("playFeedbackBeep error:", e);
+  }
+}
+
+// Hai nút bấm kiểm tra âm thanh trực quan ngay tại khung "Thiết bị quét tại cổng"
+function testAudioSuccessButton() {
+  unlockAudioAndSpeech();
   playFeedbackBeep(true);
-  speakVietnamese("XÁC THỰC THÀNH CÔNG. Hệ thống quản trị bãi giữ xe thông minh U E H Mê Kông xin chào!");
+  speakVietnamese("XÁC NHẬN THÀNH CÔNG");
+  updateScanStatusBanner(true, "🔊 XÁC NHẬN THÀNH CÔNG!");
+}
+
+function testAudioFailButton() {
+  unlockAudioAndSpeech();
+  playFeedbackBeep(false);
+  speakVietnamese("KHÔNG THỂ XÁC NHẬN");
+  updateScanStatusBanner(false, "🔊 KHÔNG THỂ XÁC NHẬN!");
+}
+
+function testVoiceAI() {
+  testAudioSuccessButton();
 }
 
 function toggleVoiceSetting(enabled) {
   voiceAIEnabled = Boolean(enabled);
   if (voiceAIEnabled) {
-    speakVietnamese("Đã bật giọng đọc A I tiếng Việt");
-  }
-}
-
-function playFeedbackBeep(isSuccess) {
-  try {
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    if (!AudioCtx) return;
-    const ctx = new AudioCtx();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-
-    if (isSuccess) {
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(880, ctx.currentTime);
-      osc.frequency.setValueAtTime(1320, ctx.currentTime + 0.09);
-      gain.gain.setValueAtTime(0.15, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.25);
-    } else {
-      osc.type = "sawtooth";
-      osc.frequency.setValueAtTime(240, ctx.currentTime);
-      osc.frequency.setValueAtTime(180, ctx.currentTime + 0.15);
-      gain.gain.setValueAtTime(0.2, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.38);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.38);
-    }
-  } catch (e) {
-    // Ignore audio context restriction if any
+    unlockAudioAndSpeech();
+    playFeedbackBeep(true);
+    speakVietnamese("XÁC NHẬN THÀNH CÔNG");
   }
 }
 
