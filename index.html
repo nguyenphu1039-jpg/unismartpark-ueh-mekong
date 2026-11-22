@@ -525,9 +525,9 @@
                   </div>
                 </div>
 
-                <!-- Sub-bar showing current zone description & roof badge -->
-                <div class="flex flex-wrap items-center justify-between gap-2 my-2.5 text-xs">
-                  <div class="flex items-center gap-2">
+                <!-- Sub-bar showing current zone description, roof badge, Quick 1-Tap Edit Toggle & Reset All Slots to Free -->
+                <div class="flex flex-wrap items-center justify-between gap-2 my-2.5 text-xs bg-slate-50/90 p-2 rounded-xl border border-slate-200/80">
+                  <div class="flex items-center flex-wrap gap-2">
                     <span id="current-zone-roof-badge" class="px-2.5 py-0.5 rounded-full font-bold bg-teal-100 text-[#005f69]">
                       Có mái che
                     </span>
@@ -535,8 +535,17 @@
                       Phía Bắc Sân bóng chuyền - Cạnh Khu A
                     </span>
                   </div>
-                  <div class="text-[11px] text-slate-500 font-semibold">
-                    Nhấn vào từng ô đỗ để xem chi tiết / Đặt chỗ / Đối chiếu biển số AI
+
+                  <!-- CÁCH 2: Công tắc "✏️ Đổi nhanh trạng thái ô" (1 chạm xoay vòng) & Nút "[🔄 Đặt lại tất cả ô về Trống]" -->
+                  <div class="flex items-center flex-wrap gap-1.5 ml-auto">
+                    <button id="btn-toggle-quick-edit" onclick="toggleQuickSlotEditMode()" class="px-2.5 py-1.5 rounded-lg text-[11px] font-extrabold border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 flex items-center gap-1.5 shadow-sm transition active:scale-95" title="Khi BẬT: Mỗi lần nhấn vào 1 ô trên sơ đồ 2D sẽ tự động xoay vòng qua 4 trạng thái (Trống -> Đang sử dụng -> Đặt trước -> Không khả dụng -> Trống)">
+                      <span id="quick-edit-switch-dot" class="w-2.5 h-2.5 rounded-full bg-slate-400"></span>
+                      <span id="quick-edit-switch-label">✏️ Đổi nhanh trạng thái ô: TẮT</span>
+                    </button>
+
+                    <button onclick="resetAllSlotsInCurrentZoneToFree()" class="px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 flex items-center gap-1 shadow-sm transition active:scale-95" title="Đặt lại toàn bộ 20 ô của bãi đỗ hiện tại về trạng thái Trống (Xanh lá)">
+                      <span>🔄 Đặt lại tất cả ô về Trống</span>
+                    </button>
                   </div>
                 </div>
 
@@ -667,6 +676,49 @@
                     <div class="flex justify-between py-0.5">
                       <span class="text-slate-500 font-medium">Biển số đăng ký:</span>
                       <span id="slot-detail-plate" class="font-mono font-bold text-[#005f69]">—</span>
+                    </div>
+                  </div>
+
+                  <!-- CÁCH 1: Chỉnh trực tiếp trạng thái ô đỗ (4 nút trực quan + Gán nhanh Sinh viên / Biển số) -->
+                  <div class="bg-[#f8fafc] rounded-xl p-2.5 border border-slate-200 space-y-2">
+                    <div class="flex items-center justify-between">
+                      <span class="text-[11px] font-extrabold text-slate-700 flex items-center gap-1">
+                        <i data-lucide="sliders-horizontal" class="w-3.5 h-3.5 text-[#005f69]"></i>
+                        Chỉnh nhanh trạng thái ô <span id="direct-edit-slot-label" class="text-[#f26f21]">A01</span>:
+                      </span>
+                      <span class="text-[10px] font-semibold text-slate-400">Đồng bộ tức thì</span>
+                    </div>
+
+                    <!-- Bộ 4 nút chuyển đổi trạng thái trực quan -->
+                    <div class="grid grid-cols-2 gap-1.5">
+                      <button id="btn-set-status-free" onclick="setSlotDirectStatus('free')" class="py-1.5 px-2 rounded-lg text-[11px] font-extrabold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 flex items-center justify-center gap-1 shadow-sm transition active:scale-95">
+                        <span>🟢 Trống</span>
+                      </button>
+                      <button id="btn-set-status-occupied" onclick="setSlotDirectStatus('occupied')" class="py-1.5 px-2 rounded-lg text-[11px] font-extrabold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-300 flex items-center justify-center gap-1 shadow-sm transition active:scale-95">
+                        <span>🔵 Đang sử dụng</span>
+                      </button>
+                      <button id="btn-set-status-reserved" onclick="setSlotDirectStatus('reserved')" class="py-1.5 px-2 rounded-lg text-[11px] font-extrabold bg-orange-50 hover:bg-orange-100 text-[#f26f21] border border-orange-300 flex items-center justify-center gap-1 shadow-sm transition active:scale-95">
+                        <span>🟠 Đặt trước</span>
+                      </button>
+                      <button id="btn-set-status-unavailable" onclick="setSlotDirectStatus('unavailable')" class="py-1.5 px-2 rounded-lg text-[11px] font-extrabold bg-red-50 hover:bg-red-100 text-red-600 border border-red-300 flex items-center justify-center gap-1 shadow-sm transition active:scale-95">
+                        <span>🔴 Không khả dụng</span>
+                      </button>
+                    </div>
+
+                    <!-- Khung gán nhanh 1 trong 10 Sinh viên hoặc nhập Biển số tùy ý cho ô đang chọn -->
+                    <div id="slot-quick-assign-panel" class="pt-1.5 border-t border-slate-200/80 space-y-1.5">
+                      <label class="block text-[10px] font-bold text-slate-500">
+                        👤 Gán Sinh viên / Biển số cho ô này (khi Đang sử dụng / Đặt trước):
+                      </label>
+                      <select id="slot-direct-student-select" onchange="onChangeSlotDirectStudent(this.value)" class="w-full bg-white border border-slate-200 rounded-lg text-[11px] px-2 py-1.5 font-semibold text-slate-800 focus:outline-none focus:border-[#005f69]">
+                        <!-- Populated with 10 group students + custom option -->
+                      </select>
+                      <div class="flex gap-1.5">
+                        <input id="slot-direct-custom-plate" type="text" placeholder="Hoặc nhập biển số tùy ý..." class="flex-1 bg-white border border-slate-200 rounded-lg text-[11px] px-2 py-1 font-mono font-bold text-[#005f69] focus:outline-none focus:border-[#005f69]" />
+                        <button onclick="applyCustomVehicleToSelectedSlot()" class="bg-[#005f69] hover:bg-[#0d4a52] text-white text-[11px] font-bold px-2.5 py-1 rounded-lg transition shrink-0">
+                          Gán xe
+                        </button>
+                      </div>
                     </div>
                   </div>
 
