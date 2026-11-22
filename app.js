@@ -134,6 +134,9 @@ let kpiStats = {
 // Scanner State
 let html5QrCodeInstance = null;
 let isCameraRunning = false;
+let availableCameras = [];
+let currentCameraIndex = -1;
+let currentFacingMode = "environment";
 let lastScannedCode = "";
 let lastScanTimestamp = 0;
 let currentDisplayedStudent = null;
@@ -144,6 +147,20 @@ let currentMobileStudentMssv = "31251570240"; // Mặc định Hồ Thị Mỹ H
 let sharedAudioCtx = null;
 let isAudioSpeechUnlocked = false;
 let fallbackTtsAudio = null;
+
+// Real-Time Cloud Sync State (MQTT over WebSockets: Phone <-> Laptop)
+const MQTT_BROKERS = [
+  "wss://broker.emqx.io:8084/mqtt",
+  "wss://broker.hivemq.com:8884/mqtt"
+];
+const MQTT_SYNC_TOPIC = "ueh-mekong/unismartpark/live-sync-v1";
+const CLIENT_SESSION_ID = "ueh_" + Math.random().toString(36).substring(2, 10) + "_" + Date.now().toString(36);
+let mqttClient = null;
+let currentBrokerIndex = 0;
+let isMqttConnected = false;
+let hasReceivedInitialRetained = false;
+let lastPublishedTimestamp = 0;
+let localBroadcastChannel = null;
 
 // Activity Logs & Alerts
 let activityLogs = [];
@@ -156,6 +173,7 @@ document.addEventListener("DOMContentLoaded", () => {
   loadDatabase();
   buildAllParkingZones();
   initDefaultLogsAndAlerts();
+  loadFullStateSnapshotFromLocal();
   populateZoneDropdown();
   populateStudentDropdowns();
 
@@ -180,6 +198,10 @@ document.addEventListener("DOMContentLoaded", () => {
   renderStudentDatabaseTable();
   renderCampusMapViews();
   renderMobileStudentApp();
+  updateWeatherWidgetUI();
+
+  // Khởi tạo kết nối Đồng bộ đám mây thời gian thực (MQTT over WebSockets) giữa Điện thoại & Laptop
+  initCloudSyncMQTT();
 
   // Start real-time clock
   updateRealTimeClock();
@@ -207,7 +229,275 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // ==========================================================================
-// 5. QUẢN LÝ DATABASE 10 SINH VIÊN & ĐỒNG BỘ LOCALSTORAGE
+// 4B. ĐỒNG BỘ THỜI GIAN THỰC ĐIỆN THOẠI <-> LAPTOP (CLOUD SYNC MQTT WSS)
+// ==========================================================================
+function updateCloudSyncBadgeUI(statusType, customText) {
+  const badge = document.getElementById("cloud-sync-badge");
+  const dot = document.getElementById("cloud-sync-dot");
+  const txt = document.getElementById("cloud-sync-text");
+  if (!badge || !dot || !txt) return;
+
+  if (statusType === "connected") {
+    badge.className = "flex items-center gap-1.5 bg-emerald-50 border border-emerald-300 text-emerald-800 px-2.5 py-1.5 rounded-xl text-[11px] font-extrabold shadow-sm transition-all";
+    dot.className = "w-2 h-2 rounded-full bg-emerald-500 animate-pulse";
+    txt.textContent = customText || "🟢 Đồng bộ trực tuyến (Phone ↔ Laptop)";
+  } else if (statusType === "syncing") {
+    badge.className = "flex items-center gap-1.5 bg-teal-50 border border-teal-400 text-[#005f69] px-2.5 py-1.5 rounded-xl text-[11px] font-extrabold shadow-md scale-[1.02] transition-all";
+    dot.className = "w-2 h-2 rounded-full bg-[#f26f21] animate-ping";
+    txt.textContent = customText || "⚡ Vừa đồng bộ dữ liệu (<0.2s)";
+    setTimeout(() => {
+      if (isMqttConnected) updateCloudSyncBadgeUI("connected");
+    }, 1200);
+  } else {
+    badge.className = "flex items-center gap-1.5 bg-amber-50 border border-amber-200 text-amber-700 px-2.5 py-1.5 rounded-xl text-[11px] font-bold shadow-sm transition-all";
+    dot.className = "w-2 h-2 rounded-full bg-amber-500 animate-ping";
+    txt.textContent = customText || "🟡 Đang kết nối Cloud...";
+  }
+}
+
+function initCloudSyncMQTT() {
+  // Hỗ trợ đồng bộ đa tab tức thì trên cùng thiết bị qua BroadcastChannel
+  if ("BroadcastChannel" in window && !localBroadcastChannel) {
+    try {
+      localBroadcastChannel = new BroadcastChannel("unismartpark_ueh_live_channel");
+      localBroadcastChannel.onmessage = (evt) => {
+        if (evt.data && evt.data.senderId !== CLIENT_SESSION_ID) {
+          applyCloudSyncState(evt.data);
+        }
+      };
+    } catch (e) {}
+  }
+
+  window.addEventListener("storage", (evt) => {
+    if (evt.key === "unismartpark_full_state_v3" && evt.newValue) {
+      try {
+        const parsed = JSON.parse(evt.newValue);
+        if (parsed && parsed.senderId !== CLIENT_SESSION_ID) {
+          applyCloudSyncState(parsed);
+        }
+      } catch (e) {}
+    }
+  });
+
+  connectToMqttBroker(currentBrokerIndex);
+}
+
+function connectToMqttBroker(brokerIdx) {
+  if (typeof mqtt === "undefined") {
+    updateCloudSyncBadgeUI("connecting", "🟡 Chế độ Local (Đang tải MQTT...)");
+    return;
+  }
+
+  const brokerUrl = MQTT_BROKERS[brokerIdx % MQTT_BROKERS.length];
+  updateCloudSyncBadgeUI("connecting", "🟡 Đang kết nối Cloud...");
+
+  try {
+    if (mqttClient) {
+      try { mqttClient.end(true); } catch (e) {}
+    }
+
+    mqttClient = mqtt.connect(brokerUrl, {
+      clientId: CLIENT_SESSION_ID + "_" + Math.floor(Math.random() * 999),
+      clean: true,
+      connectTimeout: 6000,
+      reconnectPeriod: 3500
+    });
+
+    let fallbackTimer = setTimeout(() => {
+      if (!isMqttConnected) {
+        currentBrokerIndex = (currentBrokerIndex + 1) % MQTT_BROKERS.length;
+        connectToMqttBroker(currentBrokerIndex);
+      }
+    }, 7000);
+
+    mqttClient.on("connect", () => {
+      clearTimeout(fallbackTimer);
+      isMqttConnected = true;
+      updateCloudSyncBadgeUI("connected", "🟢 Đồng bộ trực tuyến (Phone ↔ Laptop)");
+
+      mqttClient.subscribe(MQTT_SYNC_TOPIC, { qos: 1 }, (err) => {
+        if (!err) {
+          // Nếu sau 1.4 giây không có gói tin retained nào trên topic mới, đẩy trạng thái hiện tại lên làm chuẩn
+          setTimeout(() => {
+            if (!hasReceivedInitialRetained && isMqttConnected) {
+              publishCloudSyncState({ type: "init_seed" });
+            }
+          }, 1400);
+        }
+      });
+    });
+
+    mqttClient.on("message", (topic, messageBuffer) => {
+      if (topic !== MQTT_SYNC_TOPIC) return;
+      try {
+        const rawStr = messageBuffer.toString();
+        if (!rawStr) return;
+        const payload = JSON.parse(rawStr);
+        hasReceivedInitialRetained = true;
+
+        // Bỏ qua gói tin do chính phiên này vừa phát đi
+        if (payload.senderId === CLIENT_SESSION_ID && payload.timestamp === lastPublishedTimestamp) {
+          return;
+        }
+        applyCloudSyncState(payload);
+      } catch (parseErr) {
+        console.warn("MQTT payload parse warning:", parseErr);
+      }
+    });
+
+    mqttClient.on("error", (err) => {
+      console.warn("MQTT broker error:", brokerUrl, err);
+    });
+
+    mqttClient.on("offline", () => {
+      isMqttConnected = false;
+      updateCloudSyncBadgeUI("connecting", "🟡 Đang kết nối lại Cloud...");
+    });
+  } catch (err) {
+    console.warn("Không thể khởi tạo MQTT:", err);
+  }
+}
+
+function buildFullSyncState(lastAction = null) {
+  return {
+    version: 3,
+    senderId: CLIENT_SESSION_ID,
+    timestamp: Date.now(),
+    students: students,
+    parkingZones: parkingZones,
+    kpiStats: kpiStats,
+    activityLogs: activityLogs.slice(0, 35),
+    systemAlerts: systemAlerts.slice(0, 20),
+    isFloodSimActive: isFloodSimActive,
+    lastAction: lastAction
+  };
+}
+
+function saveFullStateSnapshotToLocal(fullState) {
+  try {
+    localStorage.setItem(STORAGE_KEY_STUDENTS, JSON.stringify(students));
+    localStorage.setItem("unismartpark_full_state_v3", JSON.stringify(fullState));
+  } catch (e) {}
+}
+
+function loadFullStateSnapshotFromLocal() {
+  try {
+    const raw = localStorage.getItem("unismartpark_full_state_v3");
+    if (!raw) return;
+    const snap = JSON.parse(raw);
+    if (snap && Array.isArray(snap.students) && snap.parkingZones) {
+      students = snap.students;
+      parkingZones = snap.parkingZones;
+      if (snap.kpiStats) kpiStats = snap.kpiStats;
+      if (Array.isArray(snap.activityLogs) && snap.activityLogs.length > 0) activityLogs = snap.activityLogs;
+      if (Array.isArray(snap.systemAlerts) && snap.systemAlerts.length > 0) systemAlerts = snap.systemAlerts;
+      isFloodSimActive = Boolean(snap.isFloodSimActive);
+    }
+  } catch (e) {}
+}
+
+function publishCloudSyncState(lastAction = null) {
+  const fullState = buildFullSyncState(lastAction);
+  lastPublishedTimestamp = fullState.timestamp;
+  saveFullStateSnapshotToLocal(fullState);
+
+  if (localBroadcastChannel) {
+    try { localBroadcastChannel.postMessage(fullState); } catch (e) {}
+  }
+
+  if (mqttClient && isMqttConnected) {
+    try {
+      mqttClient.publish(MQTT_SYNC_TOPIC, JSON.stringify(fullState), {
+        retain: true,
+        qos: 1
+      });
+      updateCloudSyncBadgeUI("syncing", "🟢 Đồng bộ trực tuyến (Phone ↔ Laptop)");
+    } catch (pubErr) {
+      console.warn("MQTT publish error:", pubErr);
+    }
+  }
+}
+
+function applyCloudSyncState(payload) {
+  if (!payload || !Array.isArray(payload.students) || !payload.parkingZones) return;
+
+  students = payload.students;
+  parkingZones = payload.parkingZones;
+  if (payload.kpiStats) kpiStats = payload.kpiStats;
+  if (Array.isArray(payload.activityLogs)) activityLogs = payload.activityLogs;
+  if (Array.isArray(payload.systemAlerts)) systemAlerts = payload.systemAlerts;
+  isFloodSimActive = Boolean(payload.isFloodSimActive);
+
+  saveDatabase();
+  try {
+    localStorage.setItem("unismartpark_full_state_v3", JSON.stringify(payload));
+  } catch (e) {}
+
+  // Cập nhật tức thì toàn bộ giao diện trên màn hình mà không cần tải lại trang
+  populateStudentDropdowns();
+  updateWeatherWidgetUI();
+  render20SlotGrid();
+  selectSlot(selectedSlotCode);
+  renderKPICards();
+  renderRecentActivityTable();
+  renderDashboardAlerts();
+  renderNotificationsPopover();
+  renderStudentDatabaseTable();
+  renderCampusMapViews();
+  renderMobileStudentApp();
+
+  // Xử lý sự kiện đồng bộ đặc biệt từ thiết bị kia gửi sang (VD: Điện thoại vừa quét mã hoặc kích hoạt mưa ngập)
+  const act = payload.lastAction;
+  if (act && payload.senderId !== CLIENT_SESSION_ID) {
+    updateCloudSyncBadgeUI("syncing", "⚡ Nhận đồng bộ từ thiết bị khác!");
+
+    if (act.type === "scan" && act.student) {
+      updateScanStatusBanner(true, act.bannerText || `XÁC NHẬN THÀNH CÔNG! (${act.student.hoTen})`);
+      renderScannedStudentCard(act.student, act.directionLabel, act.isCheckIn);
+      if (act.slotCode) {
+        if (act.slotCode.startsWith("A")) {
+          currentZoneId = "khu-a";
+          populateZoneDropdown();
+          render20SlotGrid();
+        }
+        selectSlot(act.slotCode);
+      }
+    } else if (act.type === "scan_fail") {
+      updateScanStatusBanner(false, act.bannerText || `KHÔNG THỂ XÁC NHẬN! Mã lạ: ${act.code || ""}`);
+      renderUnknownScannedCard(act.code || "Mã lạ");
+    } else if (act.type === "plate_mismatch") {
+      showEmergencyStrip(act.title, act.desc);
+    } else if (act.type === "plate_match") {
+      hideEmergencyStrip();
+      if (act.slotCode) selectSlot(act.slotCode);
+    } else if (act.type === "flood_on") {
+      const pushBanner = document.getElementById("push-notification-banner");
+      if (pushBanner) pushBanner.classList.remove("hidden");
+      const studentBadge = document.getElementById("student-app-badge");
+      if (studentBadge) studentBadge.classList.remove("hidden");
+      const mobileFloodCard = document.getElementById("mobile-flood-alert-card");
+      if (mobileFloodCard) mobileFloodCard.classList.remove("hidden");
+    } else if (act.type === "flood_off" || act.type === "reset") {
+      dismissPushBanner();
+      hideEmergencyStrip();
+      const mobileFloodCard = document.getElementById("mobile-flood-alert-card");
+      if (mobileFloodCard) mobileFloodCard.classList.add("hidden");
+    } else if (act.type === "flood_relocate") {
+      dismissPushBanner();
+      const mobileFloodCard = document.getElementById("mobile-flood-alert-card");
+      if (mobileFloodCard) mobileFloodCard.classList.add("hidden");
+      if (act.slotCode) {
+        currentZoneId = "khu-a";
+        populateZoneDropdown();
+        render20SlotGrid();
+        selectSlot(act.slotCode);
+      }
+    }
+  }
+}
+
+// ==========================================================================
+// 5. QUẢN LÝ DATABASE 10 SINH VIÊN & ĐỒNG BỘ LOCALSTORAGE + CLOUD
 // ==========================================================================
 function loadDatabase() {
   try {
@@ -240,6 +530,11 @@ function saveDatabase() {
   }
 }
 
+function resetDefaultDatabaseAndSyncCloud() {
+  unlockAudioAndSpeech();
+  resetDefaultDatabase();
+}
+
 function resetDefaultDatabase() {
   students = DEFAULT_STUDENTS.map(s => ({ ...s }));
   saveDatabase();
@@ -252,22 +547,28 @@ function resetDefaultDatabase() {
     totalIn: 1320,
     totalOut: 1290
   };
+  currentZoneId = "khu-a";
   buildAllParkingZones();
   initDefaultLogsAndAlerts();
+  populateZoneDropdown();
   populateStudentDropdowns();
   render20SlotGrid();
   selectSlot("A01");
   renderScannedStudentCard(students[0], "Check-in (Vào bãi)", true);
+  updateScanStatusBanner(true, "Đã reset dữ liệu mẫu đồng bộ Cloud (Phone ↔ Laptop)");
   renderKPICards();
   renderRecentActivityTable();
   renderDashboardAlerts();
+  renderNotificationsPopover();
   renderStudentDatabaseTable();
   renderCampusMapViews();
   renderMobileStudentApp();
   updateWeatherWidgetUI();
   dismissPushBanner();
   hideEmergencyStrip();
-  speakVietnamese("Đã khôi phục dữ liệu mặc định của mười sinh viên trong nhóm");
+  publishCloudSyncState({ type: "reset" });
+  playFeedbackBeep(true);
+  speakVietnamese("XÁC NHẬN THÀNH CÔNG");
 }
 
 // ==========================================================================
@@ -684,17 +985,25 @@ function switchScanTab(tab) {
 }
 
 async function discoverCameraDevices() {
-  if (typeof Html5Qrcode === "undefined") return;
+  if (typeof Html5Qrcode === "undefined") return [];
   try {
     const devices = await Html5Qrcode.getCameras();
+    availableCameras = Array.isArray(devices) ? devices : [];
     const select = document.getElementById("camera-device-select");
-    if (!select) return;
-    if (devices && devices.length > 0) {
-      select.innerHTML = `<option value="">-- Chọn Camera (${devices.length} thiết bị) --</option>` +
-        devices.map((d, idx) => `<option value="${d.id}">${d.label || "Camera " + (idx + 1)}</option>`).join("");
+    if (select && availableCameras.length > 0) {
+      const currentVal = select.value;
+      select.innerHTML = `<option value="">-- Danh sách tất cả Camera (${availableCameras.length} ống kính) --</option>` +
+        availableCameras.map((d, idx) => `<option value="${d.id}">${d.label || "Camera " + (idx + 1)}</option>`).join("");
+      if (currentVal && availableCameras.some(d => d.id === currentVal)) {
+        select.value = currentVal;
+      } else if (currentCameraIndex >= 0 && availableCameras[currentCameraIndex]) {
+        select.value = availableCameras[currentCameraIndex].id;
+      }
     }
+    return availableCameras;
   } catch (err) {
-    // Camera permission not yet granted; will populate when user clicks Start Camera
+    // Quyền Camera chưa được cấp; sẽ tự động cập nhật ngay khi bấm Bật Camera
+    return [];
   }
 }
 
@@ -711,99 +1020,188 @@ function getSupportedFormats() {
   ];
 }
 
-async function startCameraScanner(facingModeOrDeviceId) {
-  // Mở khóa âm thanh & giọng đọc ngay khi người dùng chạm nút Bật Camera trên điện thoại
+/**
+ * Hệ thống điều khiển Camera thông minh (Dùng chung cho Điện thoại & Laptop):
+ * 1. Luôn dừng luồng quét cũ nếu đang chạy (html5QrCodeInstance.isScanning -> stop()).
+ * 2. Khởi động bằng cấu hình mềm { facingMode: "environment" } (tự mở Cam sau ĐT hoặc Webcam Laptop).
+ * 3. Khối try...catch dự phòng: Nếu { facingMode: "environment" } lỗi trên bất kỳ trình duyệt nào,
+ *    tự động gọi Html5Qrcode.getCameras(), lấy devices[devices.length - 1].id và gọi start(cameraId, ...).
+ */
+async function startSmartCameraScanner(customConstraint = null) {
   unlockAudioAndSpeech();
   switchScanTab("barcode");
+
   const readerEl = document.getElementById("qr-reader");
   const idlePreviewEl = document.getElementById("scanner-idle-preview");
   const stopBtn = document.getElementById("btn-stop-camera");
   const indicator = document.getElementById("camera-active-indicator");
 
   if (typeof Html5Qrcode === "undefined") {
-    alert("Thư viện html5-qrcode chưa tải xong. Vui lòng kiểm tra kết nối mạng hoặc dùng nút Quét nhanh bên dưới.");
+    alert("Thư viện html5-qrcode chưa tải xong. Vui lòng kiểm tra kết nối mạng!");
     return;
   }
 
-  try {
-    if (html5QrCodeInstance && isCameraRunning) {
-      await html5QrCodeInstance.stop();
-      isCameraRunning = false;
+  // Bước 1: Luôn kiểm tra và dừng luồng quét cũ nếu đang chạy
+  if (html5QrCodeInstance) {
+    try {
+      if (html5QrCodeInstance.isScanning || isCameraRunning) {
+        await html5QrCodeInstance.stop();
+      }
+    } catch (stopErr) {
+      console.warn("Dừng luồng camera cũ:", stopErr);
     }
+    isCameraRunning = false;
+  }
 
-    readerEl.classList.remove("hidden");
-    idlePreviewEl.classList.add("hidden");
-    if (stopBtn) stopBtn.classList.remove("hidden");
-    if (indicator) {
-      indicator.textContent = "Đang mở Cam...";
-      indicator.className = "text-[10px] font-bold text-amber-600 animate-pulse";
-    }
+  readerEl.classList.remove("hidden");
+  idlePreviewEl.classList.add("hidden");
+  if (stopBtn) stopBtn.classList.remove("hidden");
+  if (indicator) {
+    indicator.textContent = "Đang mở Camera...";
+    indicator.className = "text-[10px] font-bold text-amber-600 animate-pulse";
+  }
 
-    if (!html5QrCodeInstance) {
-      html5QrCodeInstance = new Html5Qrcode("qr-reader", {
-        formatsToSupport: getSupportedFormats(),
-        experimentalFeatures: {
-          useBarCodeDetectorIfSupported: true
-        },
-        verbose: false
-      });
-    }
-
-    const config = {
-      fps: 20,
-      qrbox: (viewfinderWidth, viewfinderHeight) => {
-        const w = Math.max(180, Math.floor(viewfinderWidth * 0.85));
-        const h = Math.max(100, Math.floor(viewfinderHeight * 0.55));
-        return { width: w, height: h };
+  if (!html5QrCodeInstance) {
+    html5QrCodeInstance = new Html5Qrcode("qr-reader", {
+      formatsToSupport: getSupportedFormats(),
+      experimentalFeatures: {
+        useBarCodeDetectorIfSupported: true
       },
-      aspectRatio: 1.333334
-    };
+      verbose: false
+    });
+  }
 
-    const cameraConstraint = (facingModeOrDeviceId === "environment")
-      ? { facingMode: { ideal: "environment" } }
-      : (facingModeOrDeviceId === "user")
-      ? { facingMode: "user" }
-      : facingModeOrDeviceId;
+  const scanConfig = {
+    fps: 20,
+    qrbox: (viewfinderWidth, viewfinderHeight) => {
+      const w = Math.max(180, Math.floor(viewfinderWidth * 0.85));
+      const h = Math.max(95, Math.floor(viewfinderHeight * 0.55));
+      return { width: w, height: h };
+    },
+    aspectRatio: 1.333334
+  };
 
+  // Bước 2: Mặc định dùng cấu hình mềm { facingMode: "environment" } (TUYỆT ĐỐI KHÔNG dùng exact: "environment")
+  const primaryConstraint = customConstraint
+    ? customConstraint
+    : { facingMode: currentFacingMode || "environment" };
+
+  try {
     await html5QrCodeInstance.start(
-      cameraConstraint,
-      config,
+      primaryConstraint,
+      scanConfig,
       (decodedText) => {
         onBarcodeScannedSuccess(decodedText);
       },
-      () => {
-        // Ignore frame scan misses
-      }
+      () => {}
     );
 
     isCameraRunning = true;
-    if (indicator) {
-      indicator.textContent = facingModeOrDeviceId === "environment" ? "🟢 Cam Sau ĐT" : "🟢 Webcam Live";
-      indicator.className = "text-[10px] font-bold text-emerald-600";
+    const devices = await discoverCameraDevices();
+    if (typeof primaryConstraint === "string") {
+      const idx = devices.findIndex(d => d.id === primaryConstraint);
+      if (idx >= 0) currentCameraIndex = idx;
+    } else if (devices.length > 0 && currentCameraIndex < 0) {
+      currentCameraIndex = devices.length - 1;
     }
 
-    // Refresh camera device list now that permission is granted
-    discoverCameraDevices();
-  } catch (err) {
-    console.warn("Không thể mở trực tiếp Camera:", err);
-    readerEl.classList.add("hidden");
-    idlePreviewEl.classList.remove("hidden");
-    if (stopBtn) stopBtn.classList.add("hidden");
     if (indicator) {
-      indicator.textContent = "Dùng Chụp ảnh / Test nhanh";
-      indicator.className = "text-[10px] font-bold text-orange-600";
+      const camLabel = (currentCameraIndex >= 0 && devices[currentCameraIndex] && devices[currentCameraIndex].label)
+        ? devices[currentCameraIndex].label.substring(0, 18)
+        : (currentFacingMode === "user" ? "Cam Trước / Webcam" : "Camera Đang Quét");
+      indicator.textContent = `🟢 ${camLabel}`;
+      indicator.className = "text-[10px] font-bold text-emerald-600";
     }
-    updateScanStatusBanner(
-      false,
-      "Trình duyệt chặn Camera hoặc chưa có HTTPS. Hãy bấm [📸 Chụp/Tải ảnh mã vạch] hoặc chọn nhanh SV bên dưới!"
-    );
+    updateScanStatusBanner(true, "Camera đã bật! Đưa mã vạch MSSV hoặc QR vào khung ngắm.");
+  } catch (primaryErr) {
+    console.warn("Cấu hình mềm gặp lỗi, chuyển sang fallback Html5Qrcode.getCameras():", primaryErr);
+    // Bước 3: Khối try...catch dự phòng lấy devices[devices.length - 1].id
+    try {
+      const devices = await Html5Qrcode.getCameras();
+      availableCameras = Array.isArray(devices) ? devices : [];
+      if (availableCameras.length > 0) {
+        currentCameraIndex = availableCameras.length - 1;
+        const fallbackCameraId = availableCameras[currentCameraIndex].id;
+        await discoverCameraDevices();
+
+        await html5QrCodeInstance.start(
+          fallbackCameraId,
+          scanConfig,
+          (decodedText) => {
+            onBarcodeScannedSuccess(decodedText);
+          },
+          () => {}
+        );
+
+        isCameraRunning = true;
+        const select = document.getElementById("camera-device-select");
+        if (select) select.value = fallbackCameraId;
+        if (indicator) {
+          indicator.textContent = "🟢 Camera Live (Auto)";
+          indicator.className = "text-[10px] font-bold text-emerald-600";
+        }
+        updateScanStatusBanner(true, "Camera đã bật! Đưa mã vạch MSSV hoặc QR vào khung ngắm.");
+        return;
+      } else {
+        throw new Error("Không tìm thấy thiết bị Camera nào.");
+      }
+    } catch (fallbackErr) {
+      console.warn("Không thể mở Camera sau khi đã thử fallback:", fallbackErr);
+      readerEl.classList.add("hidden");
+      idlePreviewEl.classList.remove("hidden");
+      if (stopBtn) stopBtn.classList.add("hidden");
+      if (indicator) {
+        indicator.textContent = "Dùng Chụp ảnh / Test nhanh";
+        indicator.className = "text-[10px] font-bold text-orange-600";
+      }
+      updateScanStatusBanner(
+        false,
+        "Vui lòng cấp quyền Camera trên trình duyệt hoặc bấm [📸 Chụp ảnh mã vạch] bên dưới!"
+      );
+    }
+  }
+}
+
+// Giữ hàm tương thích ngược nếu nơi nào gọi startCameraScanner
+async function startCameraScanner(modeOrId) {
+  if (modeOrId === "environment" || modeOrId === "user") {
+    currentFacingMode = modeOrId;
+    await startSmartCameraScanner({ facingMode: modeOrId });
+  } else {
+    await startSmartCameraScanner(modeOrId);
+  }
+}
+
+/**
+ * Nút phụ [🔄 Đổi Camera (Trước / Sau)]:
+ * Chuyển đổi qua lại giữa các ống kính trong danh sách Html5Qrcode.getCameras() hoặc đảo facingMode.
+ */
+async function switchCameraLens() {
+  unlockAudioAndSpeech();
+  const devices = await discoverCameraDevices();
+
+  if (devices && devices.length > 1) {
+    if (currentCameraIndex < 0) {
+      currentCameraIndex = 0;
+    } else {
+      currentCameraIndex = (currentCameraIndex + 1) % devices.length;
+    }
+    const targetCam = devices[currentCameraIndex];
+    const select = document.getElementById("camera-device-select");
+    if (select) select.value = targetCam.id;
+    await startSmartCameraScanner(targetCam.id);
+  } else {
+    currentFacingMode = currentFacingMode === "environment" ? "user" : "environment";
+    await startSmartCameraScanner({ facingMode: currentFacingMode });
   }
 }
 
 async function onSelectCameraDevice(deviceId) {
   if (!deviceId) return;
   unlockAudioAndSpeech();
-  await startCameraScanner(deviceId);
+  const idx = availableCameras.findIndex(d => d.id === deviceId);
+  if (idx >= 0) currentCameraIndex = idx;
+  await startSmartCameraScanner(deviceId);
 }
 
 async function stopCameraScanner() {
@@ -813,13 +1211,13 @@ async function stopCameraScanner() {
   const indicator = document.getElementById("camera-active-indicator");
 
   try {
-    if (html5QrCodeInstance && isCameraRunning) {
+    if (html5QrCodeInstance && (html5QrCodeInstance.isScanning || isCameraRunning)) {
       await html5QrCodeInstance.stop();
-      isCameraRunning = false;
     }
   } catch (e) {
     console.warn("Lỗi khi tắt camera:", e);
   }
+  isCameraRunning = false;
 
   if (readerEl) readerEl.classList.add("hidden");
   if (idlePreviewEl) idlePreviewEl.classList.remove("hidden");
@@ -1036,6 +1434,16 @@ function onBarcodeScannedSuccess(rawCode) {
     renderStudentDatabaseTable();
     renderCampusMapViews();
     renderMobileStudentApp();
+
+    // Đẩy trạng thái đồng bộ thời gian thực lên Cloud (Phone <-> Laptop)
+    publishCloudSyncState({
+      type: "scan",
+      student: { ...student },
+      directionLabel: actionLabel,
+      isCheckIn: isCheckIn,
+      slotCode: student.oDo,
+      bannerText: `XÁC NHẬN THÀNH CÔNG! (${student.hoTen})`
+    });
   } else {
     // TRƯỜNG HỢP 2: Mã KHÔNG có trong Database -> Phát 2 tiếng Bíp trầm 200Hz + Đọc to "KHÔNG THỂ XÁC NHẬN"
     playFeedbackBeep(false);
@@ -1055,6 +1463,12 @@ function onBarcodeScannedSuccess(rawCode) {
       detail: "Từ chối mở barie: Mã không có trong Database UEH Mekong"
     });
     renderRecentActivityTable();
+
+    publishCloudSyncState({
+      type: "scan_fail",
+      code: cleanCode,
+      bannerText: `KHÔNG THỂ XÁC NHẬN! Mã lạ: ${cleanCode}`
+    });
   }
 }
 
@@ -1573,15 +1987,19 @@ function verifyIncomingVehiclePlate() {
       renderRecentActivityTable();
       renderStudentDatabaseTable();
       renderMobileStudentApp();
+
+      publishCloudSyncState({
+        type: "plate_match",
+        slotCode: slot.code
+      });
     } else {
       // SAI BIỂN SỐ -> Phát cảnh báo đỏ "Cảnh báo đỗ sai vị trí đặt trước!"
       playFeedbackBeep(false);
       speakVietnamese(`Cảnh báo đỗ sai vị trí đặt trước tại ô ${slot.code}!`);
 
-      showEmergencyStrip(
-        `🚨 CẢNH BÁO ĐỖ SAI VỊ TRÍ ĐẶT TRƯỚC TẠI Ô ${slot.code}!`,
-        `Camera AI phát hiện xe biển số [${incomingPlate}] đi vào ô ${slot.code} đã được đặt trước bởi ${slot.studentName || "Sinh viên"} (Biển số đăng ký: [${registeredPlate}]).`
-      );
+      const errTitle = `🚨 CẢNH BÁO ĐỖ SAI VỊ TRÍ ĐẶT TRƯỚC TẠI Ô ${slot.code}!`;
+      const errDesc = `Camera AI phát hiện xe biển số [${incomingPlate}] đi vào ô ${slot.code} đã được đặt trước bởi ${slot.studentName || "Sinh viên"} (Biển số đăng ký: [${registeredPlate}]).`;
+      showEmergencyStrip(errTitle, errDesc);
 
       systemAlerts.unshift({
         id: "alert-plate-" + Date.now(),
@@ -1606,6 +2024,13 @@ function verifyIncomingVehiclePlate() {
       renderDashboardAlerts();
       renderRecentActivityTable();
       renderNotificationsPopover();
+
+      publishCloudSyncState({
+        type: "plate_mismatch",
+        slotCode: slot.code,
+        title: errTitle,
+        desc: errDesc
+      });
     }
   } else {
     // Nếu ô đang Trống, kiểm tra xem biển số này có thuộc sinh viên nào trong nhóm không
@@ -1644,6 +2069,11 @@ function verifyIncomingVehiclePlate() {
     renderKPICards();
     renderRecentActivityTable();
     renderStudentDatabaseTable();
+
+    publishCloudSyncState({
+      type: "plate_match",
+      slotCode: slot.code
+    });
   }
 }
 
@@ -1745,6 +2175,11 @@ function confirmReserveSlot() {
   renderRecentActivityTable();
   renderStudentDatabaseTable();
   renderMobileStudentApp();
+
+  publishCloudSyncState({
+    type: "reserve",
+    slotCode: slot.code
+  });
 }
 
 // ==========================================================================
@@ -1828,6 +2263,10 @@ function toggleFloodSimulation() {
   renderNotificationsPopover();
   renderCampusMapViews();
   renderMobileStudentApp();
+
+  publishCloudSyncState({
+    type: isFloodSimActive ? "flood_on" : "flood_off"
+  });
 }
 
 function updateWeatherWidgetUI() {
@@ -1925,6 +2364,12 @@ function relocateStudentToCoveredKhuA(mssv) {
   renderRecentActivityTable();
   renderStudentDatabaseTable();
   renderMobileStudentApp();
+
+  publishCloudSyncState({
+    type: "flood_relocate",
+    slotCode: emptySlot.code,
+    studentMssv: stu.mssv
+  });
 }
 
 // ==========================================================================
@@ -2097,6 +2542,12 @@ function studentBookSlotFromApp() {
   renderRecentActivityTable();
   renderStudentDatabaseTable();
   renderMobileStudentApp();
+
+  publishCloudSyncState({
+    type: "reserve",
+    slotCode: targetCode,
+    studentMssv: stu.mssv
+  });
 }
 
 // ==========================================================================
@@ -2619,6 +3070,7 @@ function saveStudentForm() {
   render20SlotGrid();
   renderMobileStudentApp();
   closeStudentFormModal();
+  publishCloudSyncState({ type: "student_crud" });
 }
 
 function deleteStudentByIndex(idx) {
@@ -2632,6 +3084,7 @@ function deleteStudentByIndex(idx) {
   renderStudentDatabaseTable();
   render20SlotGrid();
   renderMobileStudentApp();
+  publishCloudSyncState({ type: "student_crud" });
 }
 
 // Xuất / Nhập CSV
@@ -2670,7 +3123,7 @@ function importStudentsCSV(event) {
           dongXe: cols[4] || "Xe máy",
           loaiXe: cols[5] || "Xe máy",
           oDo: cols[6] || "A10",
-          trangThaiGui: cols[7] || "Đang gửi"
+          trangThaiGui: cols[7] || "Đang sử dụng"
         });
       }
     }
@@ -2682,6 +3135,7 @@ function importStudentsCSV(event) {
       renderStudentDatabaseTable();
       render20SlotGrid();
       renderMobileStudentApp();
+      publishCloudSyncState({ type: "student_crud" });
       alert(`Đã nhập thành công ${imported.length} sinh viên từ file CSV!`);
     }
   };

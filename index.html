@@ -40,6 +40,9 @@
   <!-- JsBarcode (Generate CODE_128 Student ID Barcodes) -->
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
 
+  <!-- MQTT over WebSockets (Real-Time Cloud Sync between Phone & Laptop) -->
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+
   <!-- Custom Styles -->
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -117,8 +120,19 @@
           </div>
         </div>
 
-        <!-- Right: Mode Switcher, Weather Widget, Real-time Clock, Notification Bell -->
+        <!-- Right: Cloud Sync Badge, Reset Button, Mode Switcher, Weather Widget, Real-time Clock, Notification Bell -->
         <div class="flex items-center flex-wrap gap-2 sm:gap-2.5 ml-auto">
+
+          <!-- Live Cloud Sync Status Badge (Phone <-> Laptop) -->
+          <div id="cloud-sync-badge" class="flex items-center gap-1.5 bg-amber-50 border border-amber-200 text-amber-700 px-2.5 py-1.5 rounded-xl text-[11px] font-bold shadow-sm transition-all" title="Trạng thái đồng bộ thời gian thực qua Cloud MQTT (Điện thoại ↔ Laptop)">
+            <span id="cloud-sync-dot" class="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span>
+            <span id="cloud-sync-text">🟡 Đang kết nối Cloud...</span>
+          </div>
+
+          <!-- Cloud Reset Button -->
+          <button onclick="resetDefaultDatabaseAndSyncCloud()" class="flex items-center gap-1 bg-slate-100 hover:bg-red-50 text-slate-700 hover:text-red-600 border border-slate-200 hover:border-red-200 px-2.5 py-1.5 rounded-xl text-[11px] font-bold transition active:scale-95" title="Đẩy lại trạng thái gốc của 10 SV & 7 bãi xe lên Cloud để cả Điện thoại và Laptop cùng reset đồng bộ">
+            <span>↻ Reset dữ liệu mẫu</span>
+          </button>
 
           <!-- Mode Switcher: [🖥️ Màn hình Admin] vs [📱 App Sinh viên] -->
           <div class="bg-slate-100 p-1 rounded-xl flex items-center border border-slate-200/80 shadow-inner">
@@ -267,30 +281,30 @@
                 </div>
               </div>
 
-              <!-- MULTI-DEVICE CAMERA CONTROLS (Phone Rear Cam / Laptop Webcam / Image Upload / Dropdown) -->
+              <!-- SMART CAMERA CONTROLS (Auto Phone Rear Cam / Laptop Webcam + Lens Switcher + Image Capture) -->
               <div class="bg-slate-50 rounded-xl p-2.5 border border-slate-200/90 space-y-2">
                 <div class="text-[11px] font-bold text-slate-600 uppercase tracking-wider flex items-center justify-between">
-                  <span class="flex items-center gap-1"><i data-lucide="camera" class="w-3.5 h-3.5 text-[#005f69]"></i> Điều khiển Camera đa thiết bị</span>
+                  <span class="flex items-center gap-1"><i data-lucide="camera" class="w-3.5 h-3.5 text-[#005f69]"></i> Điều khiển Camera thông minh</span>
                   <span id="camera-active-indicator" class="text-[10px] font-semibold text-slate-400">Đang chờ</span>
                 </div>
 
-                <!-- Row 1: Phone Cam vs Laptop Cam vs Stop -->
-                <div class="grid grid-cols-2 gap-1.5">
-                  <button onclick="startCameraScanner('environment')" class="bg-[#005f69] hover:bg-[#0d4a52] text-white text-[11px] font-bold py-2 px-2 rounded-lg flex items-center justify-center gap-1 shadow-sm transition active:scale-95">
-                    <span>📱 Bật Cam Sau Điện Thoại</span>
+                <!-- Row 1: Primary [📷 Bật Camera Quét Mã] & Secondary [🔄 Đổi Camera (Trước / Sau)] -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                  <button id="btn-start-smart-cam" onclick="startSmartCameraScanner()" class="bg-[#005f69] hover:bg-[#0d4a52] text-white text-[11px] font-extrabold py-2.5 px-2.5 rounded-lg flex items-center justify-center gap-1.5 shadow-sm transition active:scale-95">
+                    <span>📷 Bật Camera Quét Mã</span>
                   </button>
-                  <button onclick="startCameraScanner('user')" class="bg-slate-700 hover:bg-slate-800 text-white text-[11px] font-bold py-2 px-2 rounded-lg flex items-center justify-center gap-1 shadow-sm transition active:scale-95">
-                    <span>💻 Bật Webcam Laptop</span>
+                  <button id="btn-switch-cam-lens" onclick="switchCameraLens()" class="bg-slate-700 hover:bg-slate-800 text-white text-[11px] font-bold py-2.5 px-2 rounded-lg flex items-center justify-center gap-1 shadow-sm transition active:scale-95">
+                    <span>🔄 Đổi Camera (Trước / Sau)</span>
                   </button>
                 </div>
 
                 <!-- Row 2: Camera Device List Dropdown & Stop Button -->
                 <div class="flex items-center gap-1.5">
                   <select id="camera-device-select" onchange="onSelectCameraDevice(this.value)" class="flex-1 bg-white border border-slate-200 rounded-lg text-[11px] px-2 py-1.5 font-medium text-slate-700 focus:outline-none focus:border-[#005f69]">
-                    <option value="">-- Danh sách Camera thiết bị --</option>
+                    <option value="">-- Danh sách tất cả Camera --</option>
                   </select>
-                  <button id="btn-stop-camera" onclick="stopCameraScanner()" class="hidden bg-red-100 hover:bg-red-200 text-red-700 text-[11px] font-bold px-2.5 py-1.5 rounded-lg transition">
-                    Tắt Cam
+                  <button id="btn-stop-camera" onclick="stopCameraScanner()" class="hidden bg-red-100 hover:bg-red-200 text-red-700 text-[11px] font-bold px-2.5 py-1.5 rounded-lg transition shrink-0">
+                    ⏹️ Tắt Cam
                   </button>
                 </div>
 
@@ -298,7 +312,7 @@
                 <div class="flex items-center gap-1.5">
                   <label onclick="unlockAudioAndSpeech()" class="flex-1 cursor-pointer bg-orange-50 hover:bg-orange-100 text-[#f26f21] border border-orange-200 font-bold text-[11px] py-2 px-2.5 rounded-lg flex items-center justify-center gap-1.5 transition active:scale-95">
                     <i data-lucide="image-plus" class="w-3.5 h-3.5"></i>
-                    <span>📸 Chụp / Tải ảnh mã vạch</span>
+                    <span>📸 Chụp ảnh mã vạch</span>
                     <input id="barcode-file-input" type="file" accept="image/*" capture="environment" class="hidden" onchange="handleBarcodeImageUpload(event)" />
                   </label>
                   <button onclick="downloadSampleBarcodeImage()" class="bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-semibold py-2 px-2 rounded-lg transition" title="Tải ảnh mã vạch mẫu về máy để test tải ảnh">
