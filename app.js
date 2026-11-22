@@ -161,6 +161,7 @@ let isMqttConnected = false;
 let hasReceivedInitialRetained = false;
 let lastPublishedTimestamp = 0;
 let localBroadcastChannel = null;
+let lastSpokenEventId = "";
 
 // Activity Logs & Alerts
 let activityLogs = [];
@@ -170,6 +171,10 @@ let systemAlerts = [];
 // 4. KHỞI TẠO HỆ THỐNG (INITIALIZATION)
 // ==========================================================================
 document.addEventListener("DOMContentLoaded", () => {
+  try {
+    lastSpokenEventId = localStorage.getItem("unismartpark_last_spoken_event_id") || "";
+  } catch (e) {}
+
   loadDatabase();
   buildAllParkingZones();
   initDefaultLogsAndAlerts();
@@ -177,14 +182,14 @@ document.addEventListener("DOMContentLoaded", () => {
   populateZoneDropdown();
   populateStudentDropdowns();
 
-  // Khởi tạo danh sách giọng đọc tiếng Việt (vi / vi-VN) và đăng ký mở khóa âm thanh trên Mobile
+  // Khởi tạo danh sách giọng đọc tiếng Việt (vi / vi-VN) và tự động mở khóa Loa Admin ngay ở cú click đầu tiên
   initVoiceSynthesisVoices();
-  ["touchstart", "pointerdown", "click"].forEach(evtName => {
+  ["click", "pointerdown", "touchstart", "keydown"].forEach(evtName => {
     document.addEventListener(evtName, () => {
       if (!isAudioSpeechUnlocked) {
         unlockAudioAndSpeech();
       }
-    }, { once: true, passive: true });
+    }, { passive: true });
   });
 
   // Render initial UI
@@ -231,6 +236,14 @@ document.addEventListener("DOMContentLoaded", () => {
 // ==========================================================================
 // 4B. ĐỒNG BỘ THỜI GIAN THỰC ĐIỆN THOẠI <-> LAPTOP (CLOUD SYNC MQTT WSS)
 // ==========================================================================
+function markEventAsSpoken(eventId) {
+  if (!eventId) return;
+  lastSpokenEventId = eventId;
+  try {
+    localStorage.setItem("unismartpark_last_spoken_event_id", eventId);
+  } catch (e) {}
+}
+
 function updateCloudSyncBadgeUI(statusType, customText) {
   const badge = document.getElementById("cloud-sync-badge");
   const dot = document.getElementById("cloud-sync-dot");
@@ -262,7 +275,7 @@ function initCloudSyncMQTT() {
       localBroadcastChannel = new BroadcastChannel("unismartpark_ueh_live_channel");
       localBroadcastChannel.onmessage = (evt) => {
         if (evt.data && evt.data.senderId !== CLIENT_SESSION_ID) {
-          applyCloudSyncState(evt.data);
+          applyCloudSyncState(evt.data, false);
         }
       };
     } catch (e) {}
@@ -273,7 +286,7 @@ function initCloudSyncMQTT() {
       try {
         const parsed = JSON.parse(evt.newValue);
         if (parsed && parsed.senderId !== CLIENT_SESSION_ID) {
-          applyCloudSyncState(parsed);
+          applyCloudSyncState(parsed, false);
         }
       } catch (e) {}
     }
@@ -333,13 +346,14 @@ function connectToMqttBroker(brokerIdx) {
         const rawStr = messageBuffer.toString();
         if (!rawStr) return;
         const payload = JSON.parse(rawStr);
+        const isFirstRetainedPacket = !hasReceivedInitialRetained;
         hasReceivedInitialRetained = true;
 
         // Bỏ qua gói tin do chính phiên này vừa phát đi
         if (payload.senderId === CLIENT_SESSION_ID && payload.timestamp === lastPublishedTimestamp) {
           return;
         }
-        applyCloudSyncState(payload);
+        applyCloudSyncState(payload, isFirstRetainedPacket);
       } catch (parseErr) {
         console.warn("MQTT payload parse warning:", parseErr);
       }
@@ -358,7 +372,7 @@ function connectToMqttBroker(brokerIdx) {
   }
 }
 
-function buildFullSyncState(lastAction = null) {
+function buildFullSyncState(lastAction = null, scanEvent = null) {
   return {
     version: 3,
     senderId: CLIENT_SESSION_ID,
@@ -369,7 +383,8 @@ function buildFullSyncState(lastAction = null) {
     activityLogs: activityLogs.slice(0, 35),
     systemAlerts: systemAlerts.slice(0, 20),
     isFloodSimActive: isFloodSimActive,
-    lastAction: lastAction
+    lastAction: lastAction,
+    scanEvent: scanEvent
   };
 }
 
@@ -396,8 +411,8 @@ function loadFullStateSnapshotFromLocal() {
   } catch (e) {}
 }
 
-function publishCloudSyncState(lastAction = null) {
-  const fullState = buildFullSyncState(lastAction);
+function publishCloudSyncState(lastAction = null, scanEvent = null) {
+  const fullState = buildFullSyncState(lastAction, scanEvent);
   lastPublishedTimestamp = fullState.timestamp;
   saveFullStateSnapshotToLocal(fullState);
 
@@ -418,7 +433,7 @@ function publishCloudSyncState(lastAction = null) {
   }
 }
 
-function applyCloudSyncState(payload) {
+function applyCloudSyncState(payload, isFirstRetainedPacket = false) {
   if (!payload || !Array.isArray(payload.students) || !payload.parkingZones) return;
 
   students = payload.students;
@@ -446,31 +461,82 @@ function applyCloudSyncState(payload) {
   renderCampusMapViews();
   renderMobileStudentApp();
 
-  // Xử lý sự kiện đồng bộ đặc biệt từ thiết bị kia gửi sang (VD: Điện thoại vừa quét mã hoặc kích hoạt mưa ngập)
+  // Xử lý scanEvent đồng bộ từ Điện thoại sang máy tính Admin (kèm chống phát lặp khi F5)
+  const ev = payload.scanEvent;
+  if (ev && ev.eventId) {
+    const isNewUnspokenEvent = ev.eventId !== lastSpokenEventId;
+    const ageMs = Math.abs(Date.now() - Number(ev.timestamp || 0));
+    // Chỉ phát âm thanh cho sự kiện mới phát sinh trong vòng 15 giây gần nhất (hoặc gói tin live vừa bắn sang khi trang đang mở)
+    const shouldSpeakNow = isNewUnspokenEvent && (!isFirstRetainedPacket || ageMs <= 15000);
+
+    // Cập nhật khung "Thiết bị quét tại cổng" ở cột trái màn hình Admin
+    if (ev.action === "checkin" || ev.action === "checkout") {
+      const isCheckIn = ev.action === "checkin";
+      const dirLabel = isCheckIn ? "Check-in (Vào bãi)" : "Check-out (Ra bãi)";
+      updateScanStatusBanner(true, `✔ Quét thành công! (${ev.hoTen})`);
+      renderScannedStudentCard(
+        {
+          mssv: ev.mssv,
+          hoTen: ev.hoTen,
+          ngaySinh: ev.ngaySinh || "2007",
+          bienSo: ev.bienSo,
+          dongXe: ev.dongXe || "Xe máy",
+          loaiXe: ev.loaiXe || "Xe máy",
+          oDo: ev.slotId
+        },
+        dirLabel,
+        isCheckIn,
+        ev.zoneName
+      );
+
+      if (ev.slotId) {
+        for (const zId of Object.keys(parkingZones)) {
+          if (parkingZones[zId].some(s => s.code === ev.slotId)) {
+            if (currentZoneId !== zId) {
+              currentZoneId = zId;
+              populateZoneDropdown();
+            }
+            break;
+          }
+        }
+        render20SlotGrid();
+        selectSlot(ev.slotId);
+      }
+
+      if (shouldSpeakNow) {
+        markEventAsSpoken(ev.eventId);
+        playFeedbackBeep(true);
+        const fallbackSpeech = isCheckIn
+          ? `Xác nhận thành công. Vị trí đỗ xe của bạn là ô ${formatSlotCodeForSpeech(ev.slotId)}, ${ev.zoneName || "Bãi đỗ xe Khu A"}.`
+          : `Xác nhận ra cổng thành công. Đã giải phóng ô ${formatSlotCodeForSpeech(ev.slotId)}.`;
+        speakVietnamese(ev.speechText || fallbackSpeech);
+      } else if (isNewUnspokenEvent) {
+        // Đánh dấu gói tin retained cũ để không bao giờ đọc lại khi F5
+        markEventAsSpoken(ev.eventId);
+      }
+    } else if (ev.action === "fail") {
+      updateScanStatusBanner(false, `KHÔNG THỂ XÁC NHẬN! Mã lạ: ${ev.mssv || ""}`);
+      renderUnknownScannedCard(ev.mssv || "Mã lạ");
+      if (shouldSpeakNow) {
+        markEventAsSpoken(ev.eventId);
+        playFeedbackBeep(false);
+        speakVietnamese(ev.speechText || "Không thể xác nhận.");
+      } else if (isNewUnspokenEvent) {
+        markEventAsSpoken(ev.eventId);
+      }
+    }
+  }
+
+  // Xử lý các sự kiện đồng bộ khác từ thiết bị kia gửi sang
   const act = payload.lastAction;
   if (act && payload.senderId !== CLIENT_SESSION_ID) {
     updateCloudSyncBadgeUI("syncing", "⚡ Nhận đồng bộ từ thiết bị khác!");
 
-    if (act.type === "scan" && act.student) {
-      updateScanStatusBanner(true, act.bannerText || `XÁC NHẬN THÀNH CÔNG! (${act.student.hoTen})`);
-      renderScannedStudentCard(act.student, act.directionLabel, act.isCheckIn);
-      if (act.slotCode) {
-        if (act.slotCode.startsWith("A")) {
-          currentZoneId = "khu-a";
-          populateZoneDropdown();
-          render20SlotGrid();
-        }
-        selectSlot(act.slotCode);
-      }
-    } else if (act.type === "scan_fail") {
-      updateScanStatusBanner(false, act.bannerText || `KHÔNG THỂ XÁC NHẬN! Mã lạ: ${act.code || ""}`);
-      renderUnknownScannedCard(act.code || "Mã lạ");
-    } else if (act.type === "plate_mismatch") {
+    if (act.type === "plate_mismatch") {
       showEmergencyStrip(act.title, act.desc);
     } else if (act.type === "plate_match" || act.type === "slot_edit" || act.type === "reserve") {
       if (act.type === "plate_match") hideEmergencyStrip();
       if (act.slotCode) {
-        // Tìm khu vực chứa ô vừa được chỉnh sửa trên thiết bị kia để đồng bộ hiển thị
         for (const zId of Object.keys(parkingZones)) {
           if (parkingZones[zId].some(s => s.code === act.slotCode)) {
             if (currentZoneId !== zId) {
@@ -1633,13 +1699,40 @@ function preprocessBarcodeImageFile(file) {
 }
 
 // ==========================================================================
-// XỬ LÝ KẾT QUẢ QUÉT MÃ (2 CHIỀU CHECK-IN / CHECK-OUT + GIỌNG ĐỌC AI TIẾNG VIỆT)
+// XỬ LÝ CHUỖI ĐỌC MÃ Ô ĐỖ & TÊN KHU VỰC CHO GIỌNG ĐỌC AI TIẾNG VIỆT
+// ==========================================================================
+function formatSlotCodeForSpeech(slotCode) {
+  const raw = String(slotCode || "A01").trim().toUpperCase();
+  const match = raw.match(/^([A-Z]+)(\d+)$/);
+  if (!match) return raw.split("").join(" ");
+  const letters = match[1].split("").join(" ");
+  const digits = match[2];
+  // Tách chữ số có số 0 đứng đầu (VD: A03 -> "A 0 3", A15 -> "A 15") để bộ đọc tiếng Việt phát âm rõ từng ký tự
+  if (digits.startsWith("0")) {
+    return `${letters} ${digits.split("").join(" ")}`;
+  }
+  return `${letters} ${digits}`;
+}
+
+function getZoneDisplayNameBySlotCode(slotCode) {
+  const raw = String(slotCode || "A01").trim().toUpperCase();
+  if (raw.startsWith("KB")) return "Bãi đỗ xe sau KTX B";
+  if (raw.startsWith("SD")) return "Bãi đỗ xe sau Khu D";
+  if (raw.startsWith("MM")) return "Bãi đỗ xe trước Mini Mart";
+  if (raw.startsWith("TT")) return "Bãi đỗ xe Trung tâm";
+  if (raw.startsWith("HT")) return "Bãi đỗ xe sau Hội trường A";
+  if (raw.startsWith("D")) return "Bãi đỗ xe Khu D";
+  return "Bãi đỗ xe Khu A";
+}
+
+// ==========================================================================
+// XỬ LÝ KẾT QUẢ QUÉT MÃ (2 CHIỀU CHECK-IN / CHECK-OUT + GIỌNG ĐỌC AI + ĐỒNG BỘ LOA ADMIN)
 // ==========================================================================
 function onBarcodeScannedSuccess(rawCode) {
   const cleanCode = String(rawCode || "").trim();
   if (!cleanCode) {
     playFeedbackBeep(false);
-    speakVietnamese("KHÔNG THỂ XÁC NHẬN");
+    speakVietnamese("Không thể xác nhận.");
     return;
   }
 
@@ -1658,22 +1751,23 @@ function onBarcodeScannedSuccess(rawCode) {
   );
 
   if (student) {
-    // TRƯỜNG HỢP 1: Khớp MSSV trong Database -> Phát 1 tiếng Bíp thanh (900Hz, 0.15s) + Đọc to "XÁC NHẬN THÀNH CÔNG"
-    playFeedbackBeep(true);
-    speakVietnamese("XÁC NHẬN THÀNH CÔNG");
-
-    // Tự động đảo trạng thái 2 chiều (Đang sử dụng -> Check-out Ra; Chưa gửi / Đặt trước -> Check-in Vào)
     let actionLabel = "";
     let isCheckIn = true;
+    let targetSlotId = student.oDo || "A01";
+    let cleanZoneName = "Bãi đỗ xe Khu A";
+    let speechText = "";
 
     if (isStudentParked(student.trangThaiGui)) {
-      // Thực hiện CHECK-OUT (Ra bãi)
+      // KHI QUÉT CHECK-OUT THÀNH CÔNG (Xe rời bãi)
       isCheckIn = false;
       actionLabel = "Check-out (Ra bãi)";
-      student.trangThaiGui = "Đã lấy xe";
+      targetSlotId = student.oDo || "A01";
+      cleanZoneName = getZoneDisplayNameBySlotCode(targetSlotId);
+      const spokenSlot = formatSlotCodeForSpeech(targetSlotId);
+      speechText = `Xác nhận ra cổng thành công. Đã giải phóng ô ${spokenSlot}.`;
 
-      // Giải phóng ô đỗ hiện tại
-      freeStudentSlot(student.mssv, student.oDo);
+      student.trangThaiGui = "Đã lấy xe";
+      freeStudentSlot(student.mssv, targetSlotId);
 
       kpiStats.occupied = Math.max(0, kpiStats.occupied - 1);
       kpiStats.free += 1;
@@ -1684,13 +1778,13 @@ function onBarcodeScannedSuccess(rawCode) {
         plate: student.bienSo,
         studentName: student.hoTen,
         mssv: student.mssv,
-        slot: student.oDo || "A01",
+        slot: targetSlotId,
         status: "Ra",
         badgeType: "out",
-        detail: `Check-out 2 chiều thành công (${student.dongXe})`
+        detail: `Check-out 2 chiều thành công - Giải phóng ô ${targetSlotId}`
       });
     } else {
-      // Thực hiện CHECK-IN (Vào bãi)
+      // KHI QUÉT CHECK-IN THÀNH CÔNG (Xe vào bãi và được gán/đối chiếu ô đỗ)
       isCheckIn = true;
       actionLabel = "Check-in (Vào bãi)";
       const wasReserved = student.trangThaiGui === "Đặt trước";
@@ -1698,6 +1792,10 @@ function onBarcodeScannedSuccess(rawCode) {
 
       // Đảm bảo sinh viên có ô đỗ trong Khu A (nếu ô cũ đã bị người khác đỗ thì cấp ô trống mới)
       assignOrActivateStudentSlot(student);
+      targetSlotId = student.oDo || "A01";
+      cleanZoneName = getZoneDisplayNameBySlotCode(targetSlotId);
+      const spokenSlot = formatSlotCodeForSpeech(targetSlotId);
+      speechText = `Xác nhận thành công. Vị trí đỗ xe của bạn là ô ${spokenSlot}, ${cleanZoneName}.`;
 
       if (wasReserved) {
         kpiStats.reserved = Math.max(0, kpiStats.reserved - 1);
@@ -1712,43 +1810,89 @@ function onBarcodeScannedSuccess(rawCode) {
         plate: student.bienSo,
         studentName: student.hoTen,
         mssv: student.mssv,
-        slot: student.oDo,
+        slot: targetSlotId,
         status: "Vào",
         badgeType: "in",
-        detail: `Check-in 2 chiều thành công (${student.dongXe})`
+        detail: `Check-in thành công - Vị trí: Ô ${targetSlotId} (${cleanZoneName})`
       });
     }
 
-    saveDatabase();
-    updateScanStatusBanner(true, `XÁC NHẬN THÀNH CÔNG! (${student.hoTen})`);
-    renderScannedStudentCard(student, actionLabel, isCheckIn);
+    // Tạo scanEvent để đồng bộ phát loa trên máy tính Admin qua MQTT
+    const eventId = "scan_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7);
+    const scanEvent = {
+      eventId,
+      timestamp: Date.now(),
+      action: isCheckIn ? "checkin" : "checkout",
+      mssv: student.mssv,
+      hoTen: student.hoTen,
+      ngaySinh: student.ngaySinh,
+      bienSo: student.bienSo,
+      dongXe: student.dongXe,
+      loaiXe: student.loaiXe || "Xe máy",
+      slotId: targetSlotId,
+      zoneName: cleanZoneName,
+      speechText: speechText
+    };
 
-    // Chuyển sơ đồ về Khu A và chọn đúng ô của sinh viên vừa quét để thấy hiệu ứng đổi màu trực tiếp
-    if (student.oDo && student.oDo.startsWith("A")) {
-      currentZoneId = "khu-a";
-      populateZoneDropdown();
+    markEventAsSpoken(eventId);
+    playFeedbackBeep(true);
+    speakVietnamese(speechText);
+
+    saveDatabase();
+    updateScanStatusBanner(true, `✔ Quét thành công! (${student.hoTen})`);
+    renderScannedStudentCard(student, actionLabel, isCheckIn, cleanZoneName);
+
+    // Chuyển sơ đồ về đúng khu vực và chọn ô của sinh viên vừa quét để thấy hiệu ứng đổi màu trực tiếp
+    for (const zId of Object.keys(parkingZones)) {
+      if (parkingZones[zId].some(s => s.code === targetSlotId)) {
+        if (currentZoneId !== zId) {
+          currentZoneId = zId;
+          populateZoneDropdown();
+        }
+        break;
+      }
     }
     render20SlotGrid();
-    if (student.oDo) selectSlot(student.oDo);
+    if (targetSlotId) selectSlot(targetSlotId);
     renderKPICards();
     renderRecentActivityTable();
     renderStudentDatabaseTable();
     renderCampusMapViews();
     renderMobileStudentApp();
 
-    // Đẩy trạng thái đồng bộ thời gian thực lên Cloud (Phone <-> Laptop)
-    publishCloudSyncState({
-      type: "scan",
-      student: { ...student },
-      directionLabel: actionLabel,
-      isCheckIn: isCheckIn,
-      slotCode: student.oDo,
-      bannerText: `XÁC NHẬN THÀNH CÔNG! (${student.hoTen})`
-    });
+    // Đẩy trạng thái + scanEvent đồng bộ thời gian thực lên Cloud (Phone <-> Laptop Admin)
+    publishCloudSyncState(
+      {
+        type: "scan",
+        student: { ...student },
+        directionLabel: actionLabel,
+        isCheckIn: isCheckIn,
+        slotCode: targetSlotId,
+        zoneName: cleanZoneName,
+        bannerText: `✔ Quét thành công! (${student.hoTen})`
+      },
+      scanEvent
+    );
   } else {
-    // TRƯỜNG HỢP 2: Mã KHÔNG có trong Database -> Phát 2 tiếng Bíp trầm 200Hz + Đọc to "KHÔNG THỂ XÁC NHẬN"
+    // KHI QUÉT THẤT BẠI / KHÔNG KHỚP MÃ -> Phát 2 tiếng Bíp trầm 200Hz + Đọc "Không thể xác nhận."
+    const eventId = "scan_fail_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7);
+    const speechText = "Không thể xác nhận.";
+    const scanEvent = {
+      eventId,
+      timestamp: Date.now(),
+      action: "fail",
+      mssv: cleanCode,
+      hoTen: "KHÔNG THỂ XÁC NHẬN",
+      bienSo: "Chưa đăng ký",
+      dongXe: "Không xác định",
+      slotId: "Từ chối",
+      zoneName: "Cổng kiểm soát",
+      speechText: speechText
+    };
+
+    markEventAsSpoken(eventId);
     playFeedbackBeep(false);
-    speakVietnamese("KHÔNG THỂ XÁC NHẬN");
+    speakVietnamese(speechText);
 
     updateScanStatusBanner(false, `KHÔNG THỂ XÁC NHẬN! Mã lạ: ${cleanCode}`);
     renderUnknownScannedCard(cleanCode);
@@ -1765,11 +1909,14 @@ function onBarcodeScannedSuccess(rawCode) {
     });
     renderRecentActivityTable();
 
-    publishCloudSyncState({
-      type: "scan_fail",
-      code: cleanCode,
-      bannerText: `KHÔNG THỂ XÁC NHẬN! Mã lạ: ${cleanCode}`
-    });
+    publishCloudSyncState(
+      {
+        type: "scan_fail",
+        code: cleanCode,
+        bannerText: `KHÔNG THỂ XÁC NHẬN! Mã lạ: ${cleanCode}`
+      },
+      scanEvent
+    );
   }
 }
 
@@ -1820,7 +1967,7 @@ function triggerManualCodeScan() {
   const input = document.getElementById("manual-scan-input");
   if (!input || !input.value.trim()) {
     playFeedbackBeep(false);
-    speakVietnamese("KHÔNG THỂ XÁC NHẬN");
+    speakVietnamese("Không thể xác nhận.");
     updateScanStatusBanner(false, "KHÔNG THỂ XÁC NHẬN! Vui lòng nhập MSSV hoặc mã vạch.");
     renderUnknownScannedCard("Trống");
     return;
@@ -1853,7 +2000,7 @@ function updateScanStatusBanner(isSuccess, message) {
   if (window.lucide) lucide.createIcons();
 }
 
-function renderScannedStudentCard(student, directionLabel, isCheckIn) {
+function renderScannedStudentCard(student, directionLabel, isCheckIn, customZoneName = null) {
   if (!student) return;
   currentDisplayedStudent = student;
 
@@ -1866,6 +2013,9 @@ function renderScannedStudentCard(student, directionLabel, isCheckIn) {
   const modelEl = document.getElementById("scanned-student-model");
   const slotEl = document.getElementById("scanned-student-slot");
 
+  const slotCode = student.oDo || "A01";
+  const zoneName = customZoneName || getZoneDisplayNameBySlotCode(slotCode);
+
   if (avatarEl) {
     avatarEl.textContent = initials;
     avatarEl.className = "w-8 h-8 rounded-full bg-[#005f69] text-white font-extrabold text-xs flex items-center justify-center mb-1 shadow";
@@ -1875,7 +2025,7 @@ function renderScannedStudentCard(student, directionLabel, isCheckIn) {
   if (dobEl) dobEl.textContent = student.ngaySinh;
   if (plateEl) plateEl.textContent = student.bienSo;
   if (modelEl) modelEl.textContent = `${student.dongXe} (${student.loaiXe || "Xe máy"})`;
-  if (slotEl) slotEl.textContent = student.oDo || "A01";
+  if (slotEl) slotEl.textContent = `Ô ${slotCode} - ${zoneName}`;
 
   const nowStr = getFormattedNowShort();
   const dirIconEl = document.getElementById("scanned-direction-icon");
@@ -1939,7 +2089,7 @@ function renderUnknownScannedCard(strangerCode) {
   if (dobEl) dobEl.textContent = "Không có dữ liệu";
   if (plateEl) plateEl.textContent = "Chưa đăng ký";
   if (modelEl) modelEl.textContent = "Không xác định";
-  if (slotEl) slotEl.textContent = "Từ chối";
+  if (slotEl) slotEl.textContent = "Từ chối - Không cấp ô đỗ";
 
   const dirIconEl = document.getElementById("scanned-direction-icon");
   const dirLabelEl = document.getElementById("scanned-direction-label");
@@ -1991,15 +2141,28 @@ function getSharedAudioContext() {
   return sharedAudioCtx;
 }
 
+function updateAdminSpeakerBadgeUI(unlocked) {
+  const btn = document.getElementById("admin-speaker-status-btn");
+  const txt = document.getElementById("admin-speaker-status-text");
+  if (!btn || !txt) return;
+  if (unlocked) {
+    btn.className = "flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-700 px-2.5 py-1.5 rounded-xl text-[11px] font-extrabold shadow-sm transition-all active:scale-95";
+    txt.textContent = "🔊 Loa Admin: Sẵn sàng";
+  } else {
+    btn.className = "flex items-center gap-1.5 bg-orange-50 hover:bg-orange-100 border border-orange-300 text-[#f26f21] px-2.5 py-1.5 rounded-xl text-[11px] font-extrabold shadow-sm animate-pulse transition-all active:scale-95";
+    txt.textContent = "🔇 Bấm bật Loa Admin";
+  }
+}
+
 /**
- * Cơ chế "Mở khóa âm thanh" (Audio/Speech Unlock) cho Safari iOS & Chrome Android:
- * Gọi ngay khi người dùng chạm vào [Bật Camera], [Chụp ảnh mã vạch], [Kiểm tra] hoặc nút Test.
+ * Cơ chế "Mở khóa âm thanh" (Audio/Speech Unlock) tự động cho Laptop Admin & Điện thoại:
+ * Gọi ngay ở cú click chuột đầu tiên bất kỳ trên trang Admin hoặc khi bấm [🔊 Loa Admin].
  */
 function unlockAudioAndSpeech() {
   try {
     const ctx = getSharedAudioContext();
     if (ctx && !isAudioSpeechUnlocked) {
-      // Phát 1 xung âm thanh rỗng (gain = 0) để mở khóa Web Audio API trên iOS/Android
+      // Phát 1 xung âm thanh rỗng (gain = 0) để mở khóa Web Audio API trên Chrome/Edge/Safari
       const buffer = ctx.createBuffer(1, 1, 22050);
       const source = ctx.createBufferSource();
       source.buffer = buffer;
@@ -2008,7 +2171,7 @@ function unlockAudioAndSpeech() {
     }
 
     if ("speechSynthesis" in window && !isAudioSpeechUnlocked) {
-      // Mồi một SpeechSynthesisUtterance('') rỗng để mở quyền phát loa trong callback Camera
+      // Mồi một SpeechSynthesisUtterance('') rỗng để mở quyền phát loa tự động khi nhận gói tin MQTT từ Điện thoại
       const primeUtter = new SpeechSynthesisUtterance("");
       primeUtter.lang = "vi-VN";
       primeUtter.volume = 0;
@@ -2021,9 +2184,20 @@ function unlockAudioAndSpeech() {
     }
 
     isAudioSpeechUnlocked = true;
+    updateAdminSpeakerBadgeUI(true);
   } catch (e) {
     console.warn("unlockAudioAndSpeech warning:", e);
   }
+}
+
+function manualUnlockAdminSpeaker() {
+  unlockAudioAndSpeech();
+  const stu = currentDisplayedStudent || students[0] || DEFAULT_STUDENTS[0];
+  const slotId = (stu && stu.oDo) ? stu.oDo : "A02";
+  const spokenSlot = formatSlotCodeForSpeech(slotId);
+  const zoneName = getZoneDisplayNameBySlotCode(slotId);
+  playFeedbackBeep(true);
+  speakVietnamese(`Xác nhận thành công. Vị trí đỗ xe của bạn là ô ${spokenSlot}, ${zoneName}.`);
 }
 
 function findBestVietnameseVoice() {
@@ -2159,15 +2333,20 @@ function playFeedbackBeep(isSuccess) {
 // Hai nút bấm kiểm tra âm thanh trực quan ngay tại khung "Thiết bị quét tại cổng"
 function testAudioSuccessButton() {
   unlockAudioAndSpeech();
+  const stu = currentDisplayedStudent || students[0] || DEFAULT_STUDENTS[0];
+  const slotId = (stu && stu.oDo) ? stu.oDo : "A03";
+  const spokenSlot = formatSlotCodeForSpeech(slotId);
+  const zoneName = getZoneDisplayNameBySlotCode(slotId);
+  const speechText = `Xác nhận thành công. Vị trí đỗ xe của bạn là ô ${spokenSlot}, ${zoneName}.`;
   playFeedbackBeep(true);
-  speakVietnamese("XÁC NHẬN THÀNH CÔNG");
-  updateScanStatusBanner(true, "🔊 XÁC NHẬN THÀNH CÔNG!");
+  speakVietnamese(speechText);
+  updateScanStatusBanner(true, `✔ Quét thành công! (Ô ${slotId} - ${zoneName})`);
 }
 
 function testAudioFailButton() {
   unlockAudioAndSpeech();
   playFeedbackBeep(false);
-  speakVietnamese("KHÔNG THỂ XÁC NHẬN");
+  speakVietnamese("Không thể xác nhận.");
   updateScanStatusBanner(false, "🔊 KHÔNG THỂ XÁC NHẬN!");
 }
 
@@ -2178,9 +2357,7 @@ function testVoiceAI() {
 function toggleVoiceSetting(enabled) {
   voiceAIEnabled = Boolean(enabled);
   if (voiceAIEnabled) {
-    unlockAudioAndSpeech();
-    playFeedbackBeep(true);
-    speakVietnamese("XÁC NHẬN THÀNH CÔNG");
+    testAudioSuccessButton();
   }
 }
 

@@ -129,6 +129,11 @@
             <span id="cloud-sync-text">🟡 Đang kết nối Cloud...</span>
           </div>
 
+          <!-- Admin Speaker Unlock Status Button -->
+          <button id="admin-speaker-status-btn" onclick="manualUnlockAdminSpeaker()" class="flex items-center gap-1.5 bg-orange-50 hover:bg-orange-100 border border-orange-300 text-[#f26f21] px-2.5 py-1.5 rounded-xl text-[11px] font-extrabold shadow-sm transition-all active:scale-95" title="Nhấn vào đây hoặc bất kỳ đâu trên trang để mở khóa Loa Admin tự động đọc thông báo khi Điện thoại quét mã">
+            <span id="admin-speaker-status-text">🔇 Bấm bật Loa Admin</span>
+          </button>
+
           <!-- Cloud Reset Button -->
           <button onclick="resetDefaultDatabaseAndSyncCloud()" class="flex items-center gap-1 bg-slate-100 hover:bg-red-50 text-slate-700 hover:text-red-600 border border-slate-200 hover:border-red-200 px-2.5 py-1.5 rounded-xl text-[11px] font-bold transition active:scale-95" title="Đẩy lại trạng thái gốc của 10 SV & 7 bãi xe lên Cloud để cả Điện thoại và Laptop cùng reset đồng bộ">
             <span>↻ Reset dữ liệu mẫu</span>
@@ -388,9 +393,20 @@
                       Biển số xe: <span id="scanned-student-plate" class="font-bold text-[#005f69]">62AU-006.41</span>
                     </p>
                     <p class="text-[11px] text-slate-500 font-medium">
-                      Dòng xe: <span id="scanned-student-model" class="font-semibold text-slate-700">SH mode (Xe máy)</span> • Ô: <span id="scanned-student-slot" class="font-bold text-[#f26f21]">A02</span>
+                      Dòng xe: <span id="scanned-student-model" class="font-semibold text-slate-700">SH mode (Xe máy)</span>
                     </p>
                   </div>
+                </div>
+
+                <!-- Assigned Parking Slot & Zone Location Highlight Box -->
+                <div id="scanned-location-box" class="bg-teal-50/90 border border-teal-200 rounded-xl px-3 py-2 flex items-center justify-between">
+                  <span class="text-[11px] font-bold text-slate-600 flex items-center gap-1">
+                    <i data-lucide="map-pin" class="w-3.5 h-3.5 text-[#f26f21]"></i>
+                    Vị trí ô đỗ:
+                  </span>
+                  <span id="scanned-student-slot" class="text-xs font-black text-[#005f69]">
+                    Ô A02 - Bãi đỗ xe Khu A
+                  </span>
                 </div>
 
                 <!-- Check-in / Check-out 2-way Status Box -->
