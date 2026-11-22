@@ -1552,6 +1552,80 @@
     </div>
   </div>
 
+  <!-- =====================================================================
+       MODAL 4: POPUP THÔNG BÁO KẾT QUẢ QUÉT & VỊ TRÍ ĐỖ XE (CHỐNG QUÉT LẶP)
+       ===================================================================== -->
+  <div id="modal-scan-result-popup" class="hidden fixed inset-0 z-[100] bg-slate-900/75 backdrop-blur-md flex items-center justify-center p-4">
+    <div id="scan-popup-card" class="bg-white rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border-[3px] border-emerald-500 space-y-4 animate-slide-up text-center relative overflow-hidden">
+
+      <!-- Top Icon Badge -->
+      <div class="flex flex-col items-center">
+        <div id="scan-popup-icon-wrap" class="w-20 h-20 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shadow-inner mb-3 border-4 border-emerald-200">
+          <i id="scan-popup-icon" data-lucide="check" class="w-11 h-11 stroke-[3]"></i>
+        </div>
+        <h3 id="scan-popup-title" class="text-xl sm:text-2xl font-black tracking-tight text-emerald-700 uppercase">
+          XÁC NHẬN THÀNH CÔNG
+        </h3>
+        <p id="scan-popup-subtitle" class="text-xs sm:text-sm font-semibold text-slate-500 mt-0.5">
+          Hệ thống bãi giữ xe thông minh UEH Mekong
+        </p>
+      </div>
+
+      <!-- Central Highlighted Location Card (Check-in / Check-out) -->
+      <div id="scan-popup-location-card" class="bg-gradient-to-br from-[#005f69] to-[#0d3b42] text-white rounded-2xl p-4 sm:p-5 shadow-lg border border-teal-400/30 space-y-1">
+        <div id="scan-popup-location-heading" class="text-[11px] font-extrabold uppercase tracking-widest text-teal-200">
+          📍 VỊ TRÍ BÃI ĐỖ XE CỦA BẠN
+        </div>
+        <div id="scan-popup-slot-code" class="text-4xl sm:text-5xl font-black tracking-tight text-white py-1">
+          Ô A03
+        </div>
+        <div id="scan-popup-zone-name" class="text-xs sm:text-sm font-bold text-orange-300">
+          Bãi đỗ xe Khu A - Nhà xe có mái che
+        </div>
+      </div>
+
+      <!-- Error Message Box (Only shown on Case 3: Scan Failure) -->
+      <div id="scan-popup-error-box" class="hidden bg-red-50 border border-red-200 rounded-2xl p-4 text-center space-y-1.5">
+        <p id="scan-popup-error-text" class="text-sm font-bold text-red-700">
+          Mã vạch không tồn tại trong hệ thống UEH Mekong.
+        </p>
+        <p id="scan-popup-error-code" class="text-xs font-mono font-semibold text-red-500">
+          Mã đã quét: —
+        </p>
+      </div>
+
+      <!-- Compact Student Confirmation Details Box -->
+      <div id="scan-popup-details-box" class="bg-slate-50 rounded-2xl p-3.5 border border-slate-200/90 text-xs space-y-2 text-left">
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-slate-500 font-medium">Sinh viên:</span>
+          <span id="scan-popup-student-name" class="font-extrabold text-slate-900 text-right">Nguyễn Đặng Hoàn Mỹ</span>
+        </div>
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-slate-500 font-medium">MSSV:</span>
+          <span id="scan-popup-student-mssv" class="font-mono font-bold text-slate-800">31251570256</span>
+        </div>
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-slate-500 font-medium">Biển số xe:</span>
+          <span id="scan-popup-student-plate" class="font-mono font-extrabold text-[#005f69]">95H1-986.23</span>
+        </div>
+        <div class="flex items-center justify-between gap-2 border-t border-slate-200/80 pt-1.5">
+          <span id="scan-popup-time-label" class="text-slate-500 font-medium">Thời gian vào bãi:</span>
+          <span id="scan-popup-time-val" class="font-bold text-slate-800 tabular-nums">21:18 - 22/11/2026</span>
+        </div>
+      </div>
+
+      <!-- Primary & Secondary Action Buttons -->
+      <div id="scan-popup-actions" class="space-y-2 pt-1">
+        <button id="scan-popup-primary-btn" onclick="closeScanResultModal(false)" class="w-full py-3.5 px-5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm sm:text-base shadow-lg transition active:scale-95">
+          ✅ Đã hiểu & Đóng thông báo
+        </button>
+        <button id="scan-popup-secondary-btn" onclick="closeScanResultModal(true)" class="w-full py-2 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition">
+          📷 Tiếp tục quét lượt kế tiếp (sau 1.5s)
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Application Logic -->
   <script src="app.js"></script>
 </body>

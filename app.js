@@ -134,6 +134,11 @@ let kpiStats = {
 // Scanner State
 let html5QrCodeInstance = null;
 let isCameraRunning = false;
+let isScanModalOpen = false;
+let isScannerCooldown = false;
+let wasCameraPausedByModal = false;
+let wasCameraActiveBeforeModal = false;
+let currentAppViewMode = "admin";
 let availableCameras = [];
 let currentCameraIndex = -1;
 let currentFacingMode = "environment";
@@ -510,6 +515,18 @@ function applyCloudSyncState(payload, isFirstRetainedPacket = false) {
           ? `Xác nhận thành công. Vị trí đỗ xe của bạn là ô ${formatSlotCodeForSpeech(ev.slotId)}, ${ev.zoneName || "Bãi đỗ xe Khu A"}.`
           : `Xác nhận ra cổng thành công. Đã giải phóng ô ${formatSlotCodeForSpeech(ev.slotId)}.`;
         speakVietnamese(ev.speechText || fallbackSpeech);
+
+        // Nếu thiết bị nhận đang ở chế độ App Sinh viên, bật ngay Popup vị trí đỗ xe cho sinh viên thấy
+        if (currentAppViewMode === "student") {
+          showScanResultModal({
+            type: isCheckIn ? "checkin" : "checkout",
+            hoTen: ev.hoTen,
+            mssv: ev.mssv,
+            bienSo: ev.bienSo,
+            slotId: ev.slotId,
+            zoneFullLabel: getFullZoneLabelWithRoofBySlotCode(ev.slotId)
+          });
+        }
       } else if (isNewUnspokenEvent) {
         // Đánh dấu gói tin retained cũ để không bao giờ đọc lại khi F5
         markEventAsSpoken(ev.eventId);
@@ -1408,6 +1425,11 @@ async function startSmartCameraScanner(customConstraint = null) {
     return;
   }
 
+  // Reset cờ khóa quét khi người dùng chủ động bật lại Camera
+  isScanModalOpen = false;
+  isScannerCooldown = false;
+  wasCameraPausedByModal = false;
+
   // Bước 1: Luôn kiểm tra và dừng luồng quét cũ nếu đang chạy
   if (html5QrCodeInstance) {
     try {
@@ -1458,7 +1480,8 @@ async function startSmartCameraScanner(customConstraint = null) {
       primaryConstraint,
       scanConfig,
       (decodedText) => {
-        onBarcodeScannedSuccess(decodedText);
+        if (isScanModalOpen || isScannerCooldown) return;
+        onBarcodeScannedSuccess(decodedText, true);
       },
       () => {}
     );
@@ -1495,7 +1518,8 @@ async function startSmartCameraScanner(customConstraint = null) {
           fallbackCameraId,
           scanConfig,
           (decodedText) => {
-            onBarcodeScannedSuccess(decodedText);
+            if (isScanModalOpen || isScannerCooldown) return;
+            onBarcodeScannedSuccess(decodedText, true);
           },
           () => {}
         );
@@ -1601,6 +1625,8 @@ async function stopCameraScanner() {
 async function handleBarcodeImageUpload(event) {
   // Mở khóa âm thanh ngay khi người dùng chọn/chụp ảnh
   unlockAudioAndSpeech();
+  isScanModalOpen = false;
+  isScannerCooldown = false;
   const file = event.target.files && event.target.files[0];
   if (!file) return;
 
@@ -1656,14 +1682,20 @@ async function handleBarcodeImageUpload(event) {
     }
   } catch (err) {
     console.warn("Không đọc được mã vạch từ bức ảnh này:", err);
-    // TRƯỜNG HỢP 2: Ảnh chụp bị mờ không quét được mã vạch -> Phát 2 tiếng Bíp trầm 200Hz + Đọc to "KHÔNG THỂ XÁC NHẬN"
+    // TRƯỜNG HỢP 3: Ảnh chụp bị mờ không quét được mã vạch -> Khóa quét + Bíp lỗi + Đọc "Không thể xác nhận." + Hiện Popup đỏ
+    isScanModalOpen = true;
     playFeedbackBeep(false);
-    speakVietnamese("KHÔNG THỂ XÁC NHẬN");
+    speakVietnamese("Không thể xác nhận.");
     updateScanStatusBanner(
       false,
       "KHÔNG THỂ XÁC NHẬN! Ảnh chụp bị mờ hoặc không tìm thấy mã vạch."
     );
     renderUnknownScannedCard("Ảnh mờ / Lỗi mã");
+    showScanResultModal({
+      type: "fail",
+      code: "Ảnh chụp mờ / Không nhận diện được mã",
+      reason: "Mã vạch không tồn tại trong hệ thống UEH Mekong hoặc ảnh chụp bị chói mờ."
+    });
   }
 
   event.target.value = "";
@@ -1725,22 +1757,254 @@ function getZoneDisplayNameBySlotCode(slotCode) {
   return "Bãi đỗ xe Khu A";
 }
 
+function getFullZoneLabelWithRoofBySlotCode(slotCode) {
+  const raw = String(slotCode || "A01").trim().toUpperCase();
+  if (raw.startsWith("KB")) return "Bãi đỗ xe sau KTX B - Ngoài trời dọc bờ sông";
+  if (raw.startsWith("SD")) return "Bãi đỗ xe sau Khu D - Ngoài trời (Giáp KTX A & B)";
+  if (raw.startsWith("MM")) return "Bãi đỗ xe trước Mini Mart - Ngoài trời";
+  if (raw.startsWith("TT")) return "Bãi đỗ xe Trung tâm - Nhà xe có mái che";
+  if (raw.startsWith("HT")) return "Bãi đỗ xe sau Hội trường A - Nhà xe có mái che";
+  if (raw.startsWith("D")) return "Bãi đỗ xe Khu D - Nhà xe có mái che";
+  return "Bãi đỗ xe Khu A - Nhà xe có mái che";
+}
+
 // ==========================================================================
-// XỬ LÝ KẾT QUẢ QUÉT MÃ (2 CHIỀU CHECK-IN / CHECK-OUT + GIỌNG ĐỌC AI + ĐỒNG BỘ LOA ADMIN)
+// CHỐNG CAMERA QUÉT LIÊN TỤC (AUTO-PAUSE / LOCK) & MODAL POPUP KẾT QUẢ QUÉT
 // ==========================================================================
-function onBarcodeScannedSuccess(rawCode) {
-  const cleanCode = String(rawCode || "").trim();
-  if (!cleanCode) {
-    playFeedbackBeep(false);
-    speakVietnamese("Không thể xác nhận.");
+async function pauseOrStopScannerForModal() {
+  wasCameraActiveBeforeModal = Boolean(isCameraRunning || (html5QrCodeInstance && html5QrCodeInstance.isScanning));
+  if (!html5QrCodeInstance || !wasCameraActiveBeforeModal) return;
+
+  const indicator = document.getElementById("camera-active-indicator");
+  try {
+    html5QrCodeInstance.pause(true);
+    wasCameraPausedByModal = true;
+    if (indicator) {
+      indicator.textContent = "⏸️ Đã khóa Cam (Đang hiện Popup)";
+      indicator.className = "text-[10px] font-bold text-amber-600";
+    }
+  } catch (pauseErr) {
+    try {
+      await html5QrCodeInstance.stop();
+    } catch (stopErr) {}
+    isCameraRunning = false;
+    wasCameraPausedByModal = false;
+    const readerEl = document.getElementById("qr-reader");
+    const idlePreviewEl = document.getElementById("scanner-idle-preview");
+    const stopBtn = document.getElementById("btn-stop-camera");
+    if (readerEl) readerEl.classList.add("hidden");
+    if (idlePreviewEl) idlePreviewEl.classList.remove("hidden");
+    if (stopBtn) stopBtn.classList.add("hidden");
+    if (indicator) {
+      indicator.textContent = "⏹️ Camera đã tạm dừng";
+      indicator.className = "text-[10px] font-semibold text-slate-500";
+    }
+  }
+}
+
+function showScanResultModal(opts) {
+  const modal = document.getElementById("modal-scan-result-popup");
+  if (!modal) return;
+  isScanModalOpen = true;
+
+  const card = document.getElementById("scan-popup-card");
+  const iconWrap = document.getElementById("scan-popup-icon-wrap");
+  const titleEl = document.getElementById("scan-popup-title");
+  const subtitleEl = document.getElementById("scan-popup-subtitle");
+  const locCard = document.getElementById("scan-popup-location-card");
+  const locHeading = document.getElementById("scan-popup-location-heading");
+  const slotCodeEl = document.getElementById("scan-popup-slot-code");
+  const zoneNameEl = document.getElementById("scan-popup-zone-name");
+  const errBox = document.getElementById("scan-popup-error-box");
+  const errTextEl = document.getElementById("scan-popup-error-text");
+  const errCodeEl = document.getElementById("scan-popup-error-code");
+  const detailsBox = document.getElementById("scan-popup-details-box");
+  const stuNameEl = document.getElementById("scan-popup-student-name");
+  const stuMssvEl = document.getElementById("scan-popup-student-mssv");
+  const stuPlateEl = document.getElementById("scan-popup-student-plate");
+  const timeLabelEl = document.getElementById("scan-popup-time-label");
+  const timeValEl = document.getElementById("scan-popup-time-val");
+  const primaryBtn = document.getElementById("scan-popup-primary-btn");
+  const secondaryBtn = document.getElementById("scan-popup-secondary-btn");
+
+  const nowStr = getFormattedNowShort();
+
+  if (opts.type === "checkin") {
+    // TRƯỜNG HỢP 1: QUÉT CHECK-IN THÀNH CÔNG
+    card.className = "bg-white rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border-[3px] border-emerald-500 space-y-4 animate-slide-up text-center relative overflow-hidden";
+    iconWrap.className = "w-20 h-20 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shadow-inner mb-3 border-4 border-emerald-200";
+    iconWrap.innerHTML = `<i data-lucide="check" class="w-11 h-11 stroke-[3]"></i>`;
+    titleEl.className = "text-xl sm:text-2xl font-black tracking-tight text-emerald-700 uppercase";
+    titleEl.textContent = "XÁC NHẬN THÀNH CÔNG";
+    subtitleEl.textContent = "Chào mừng bạn vào bãi giữ xe thông minh UEH Mekong";
+
+    locCard.className = "bg-gradient-to-br from-[#005f69] to-[#0d3b42] text-white rounded-2xl p-4 sm:p-5 shadow-lg border border-teal-400/30 space-y-1";
+    locCard.classList.remove("hidden");
+    locHeading.textContent = "📍 VỊ TRÍ BÃI ĐỖ XE CỦA BẠN";
+    slotCodeEl.textContent = `Ô ${opts.slotId || "A01"}`;
+    zoneNameEl.textContent = opts.zoneFullLabel || getFullZoneLabelWithRoofBySlotCode(opts.slotId);
+
+    errBox.classList.add("hidden");
+    detailsBox.classList.remove("hidden");
+    stuNameEl.textContent = opts.hoTen || "Sinh viên UEH";
+    stuMssvEl.textContent = opts.mssv || "—";
+    stuPlateEl.textContent = opts.bienSo || "—";
+    timeLabelEl.textContent = "Thời gian vào bãi:";
+    timeValEl.textContent = nowStr;
+
+    primaryBtn.textContent = "✅ Đã hiểu & Đóng thông báo";
+    primaryBtn.className = "w-full py-3.5 px-5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm sm:text-base shadow-lg transition active:scale-95";
+    primaryBtn.setAttribute("onclick", "closeScanResultModal(false)");
+
+    secondaryBtn.textContent = "📷 Quét tiếp lượt kế tiếp (sau 1.5s)";
+    secondaryBtn.className = "w-full py-2 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition";
+    secondaryBtn.setAttribute("onclick", "closeScanResultModal(true)");
+    secondaryBtn.classList.remove("hidden");
+  } else if (opts.type === "checkout") {
+    // TRƯỜNG HỢP 2: QUÉT CHECK-OUT THÀNH CÔNG (Xe rời bãi)
+    card.className = "bg-white rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border-[3px] border-blue-500 space-y-4 animate-slide-up text-center relative overflow-hidden";
+    iconWrap.className = "w-20 h-20 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center shadow-inner mb-3 border-4 border-blue-200";
+    iconWrap.innerHTML = `<i data-lucide="log-out" class="w-10 h-10 stroke-[2.5]"></i>`;
+    titleEl.className = "text-xl sm:text-2xl font-black tracking-tight text-blue-700 uppercase";
+    titleEl.textContent = "XÁC NHẬN RA CỔNG THÀNH CÔNG";
+    subtitleEl.textContent = "Cảm ơn bạn! Hẹn gặp lại tại UEH Mekong";
+
+    locCard.className = "bg-gradient-to-br from-blue-600 to-indigo-800 text-white rounded-2xl p-4 sm:p-5 shadow-lg border border-blue-400/30 space-y-1";
+    locCard.classList.remove("hidden");
+    locHeading.textContent = "✅ ĐÃ GIẢI PHÓNG VỊ TRÍ ĐỖ XE";
+    slotCodeEl.textContent = `Ô ${opts.slotId || "A01"}`;
+    zoneNameEl.textContent = opts.zoneFullLabel || getFullZoneLabelWithRoofBySlotCode(opts.slotId);
+
+    errBox.classList.add("hidden");
+    detailsBox.classList.remove("hidden");
+    stuNameEl.textContent = opts.hoTen || "Sinh viên UEH";
+    stuMssvEl.textContent = opts.mssv || "—";
+    stuPlateEl.textContent = opts.bienSo || "—";
+    timeLabelEl.textContent = "Thời gian ra cổng:";
+    timeValEl.textContent = nowStr;
+
+    primaryBtn.textContent = "✅ Đóng thông báo";
+    primaryBtn.className = "w-full py-3.5 px-5 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-sm sm:text-base shadow-lg transition active:scale-95";
+    primaryBtn.setAttribute("onclick", "closeScanResultModal(false)");
+
+    secondaryBtn.textContent = "📷 Quét tiếp lượt kế tiếp (sau 1.5s)";
+    secondaryBtn.className = "w-full py-2 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition";
+    secondaryBtn.setAttribute("onclick", "closeScanResultModal(true)");
+    secondaryBtn.classList.remove("hidden");
+  } else {
+    // TRƯỜNG HỢP 3: QUÉT THẤT BẠI / MÃ KHÔNG HỢP LỆ
+    card.className = "bg-white rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border-[3px] border-red-500 space-y-4 animate-slide-up text-center relative overflow-hidden";
+    iconWrap.className = "w-20 h-20 rounded-full bg-red-100 text-red-600 flex items-center justify-center shadow-inner mb-3 border-4 border-red-200";
+    iconWrap.innerHTML = `<i data-lucide="x" class="w-11 h-11 stroke-[3]"></i>`;
+    titleEl.className = "text-xl sm:text-2xl font-black tracking-tight text-red-600 uppercase";
+    titleEl.textContent = "KHÔNG THỂ XÁC NHẬN";
+    subtitleEl.textContent = "Barie cổng vẫn đóng — Vui lòng kiểm tra lại thẻ/mã vạch";
+
+    locCard.classList.add("hidden");
+    detailsBox.classList.add("hidden");
+    errBox.classList.remove("hidden");
+    errTextEl.textContent = opts.reason || "Mã vạch không tồn tại trong hệ thống UEH Mekong.";
+    errCodeEl.textContent = `Mã đã quét: ${opts.code || "Không xác định"}`;
+
+    primaryBtn.textContent = "🔄 Quét lại";
+    primaryBtn.className = "w-full py-3.5 px-5 rounded-2xl bg-red-600 hover:bg-red-700 text-white font-extrabold text-sm sm:text-base shadow-lg transition active:scale-95";
+    primaryBtn.setAttribute("onclick", "closeScanResultModal(true)");
+
+    secondaryBtn.textContent = "Đóng & Tắt Camera";
+    secondaryBtn.className = "w-full py-2 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition";
+    secondaryBtn.setAttribute("onclick", "closeScanResultModal(false)");
+    secondaryBtn.classList.remove("hidden");
+  }
+
+  modal.classList.remove("hidden");
+  if (window.lucide) lucide.createIcons();
+}
+
+async function closeScanResultModal(shouldResumeCamera = false) {
+  const modal = document.getElementById("modal-scan-result-popup");
+  if (modal) modal.classList.add("hidden");
+
+  // Giữ khóa an toàn trong 1.5 giây sau khi đóng Popup để tránh thẻ trước cam bị quét lặp
+  isScannerCooldown = true;
+  const indicator = document.getElementById("camera-active-indicator");
+
+  if (!shouldResumeCamera) {
+    // Kết thúc lượt quét hiện tại: Tắt luồng Camera để không bao giờ tự quét lại khi thẻ còn trước cam
+    await stopCameraScanner();
+    wasCameraPausedByModal = false;
+    wasCameraActiveBeforeModal = false;
+
+    setTimeout(() => {
+      isScanModalOpen = false;
+      isScannerCooldown = false;
+      lastScannedCode = "";
+    }, 1500);
+  } else {
+    // Người dùng chọn [🔄 Quét lại] hoặc [📷 Quét tiếp lượt kế tiếp]: Nghỉ an toàn 1.5s rồi mới mở khóa & resume()
+    if (indicator && wasCameraActiveBeforeModal) {
+      indicator.textContent = "⏳ Sẵn sàng quét lại sau 1.5s...";
+      indicator.className = "text-[10px] font-bold text-amber-600 animate-pulse";
+    }
+
+    setTimeout(async () => {
+      isScanModalOpen = false;
+      isScannerCooldown = false;
+      lastScannedCode = "";
+
+      if (wasCameraPausedByModal && html5QrCodeInstance) {
+        try {
+          html5QrCodeInstance.resume();
+          wasCameraPausedByModal = false;
+          isCameraRunning = true;
+          if (indicator) {
+            indicator.textContent = "🟢 Camera Đang Quét";
+            indicator.className = "text-[10px] font-bold text-emerald-600";
+          }
+          updateScanStatusBanner(true, "Camera đã sẵn sàng! Đưa mã vạch tiếp theo vào khung ngắm.");
+          return;
+        } catch (resumeErr) {
+          wasCameraPausedByModal = false;
+          await startSmartCameraScanner();
+          return;
+        }
+      } else if (wasCameraActiveBeforeModal) {
+        await startSmartCameraScanner();
+      }
+    }, 1500);
+  }
+}
+
+// ==========================================================================
+// XỬ LÝ KẾT QUẢ QUÉT MÃ (2 CHIỀU CHECK-IN / CHECK-OUT + AUTO-PAUSE + POPUP + MQTT)
+// ==========================================================================
+function onBarcodeScannedSuccess(rawCode, fromLiveCamera = false) {
+  // Chặn tuyệt đối mọi callback quét mới khi Popup đang mở hoặc đang trong 1.5s nghỉ an toàn
+  if (isScanModalOpen || isScannerCooldown) {
     return;
   }
 
+  const cleanCode = String(rawCode || "").trim();
   const nowMs = Date.now();
   // Chống quét trùng liên tiếp trong vòng 2.5 giây khi giữ thẻ trước webcam
-  if (cleanCode === lastScannedCode && nowMs - lastScanTimestamp < 2500) {
+  if (fromLiveCamera && cleanCode && cleanCode === lastScannedCode && nowMs - lastScanTimestamp < 2500) {
     return;
   }
+
+  // NGAY LẬP TỨC KHÓA CỜ & TẠM DỪNG/TẮT CAMERA ĐỂ KHÔNG BAO GIỜ QUÉT LẶP LIÊN TỤC
+  isScanModalOpen = true;
+  pauseOrStopScannerForModal();
+
+  if (!cleanCode) {
+    playFeedbackBeep(false);
+    speakVietnamese("Không thể xác nhận.");
+    showScanResultModal({
+      type: "fail",
+      code: "Trống",
+      reason: "Mã vạch không tồn tại trong hệ thống UEH Mekong."
+    });
+    return;
+  }
+
   lastScannedCode = cleanCode;
   lastScanTimestamp = nowMs;
 
@@ -1755,6 +2019,7 @@ function onBarcodeScannedSuccess(rawCode) {
     let isCheckIn = true;
     let targetSlotId = student.oDo || "A01";
     let cleanZoneName = "Bãi đỗ xe Khu A";
+    let fullZoneLabel = "Bãi đỗ xe Khu A - Nhà xe có mái che";
     let speechText = "";
 
     if (isStudentParked(student.trangThaiGui)) {
@@ -1763,6 +2028,7 @@ function onBarcodeScannedSuccess(rawCode) {
       actionLabel = "Check-out (Ra bãi)";
       targetSlotId = student.oDo || "A01";
       cleanZoneName = getZoneDisplayNameBySlotCode(targetSlotId);
+      fullZoneLabel = getFullZoneLabelWithRoofBySlotCode(targetSlotId);
       const spokenSlot = formatSlotCodeForSpeech(targetSlotId);
       speechText = `Xác nhận ra cổng thành công. Đã giải phóng ô ${spokenSlot}.`;
 
@@ -1794,6 +2060,7 @@ function onBarcodeScannedSuccess(rawCode) {
       assignOrActivateStudentSlot(student);
       targetSlotId = student.oDo || "A01";
       cleanZoneName = getZoneDisplayNameBySlotCode(targetSlotId);
+      fullZoneLabel = getFullZoneLabelWithRoofBySlotCode(targetSlotId);
       const spokenSlot = formatSlotCodeForSpeech(targetSlotId);
       speechText = `Xác nhận thành công. Vị trí đỗ xe của bạn là ô ${spokenSlot}, ${cleanZoneName}.`;
 
@@ -1860,6 +2127,16 @@ function onBarcodeScannedSuccess(rawCode) {
     renderCampusMapViews();
     renderMobileStudentApp();
 
+    // Hiển thị Popup thông báo kết quả + Vị trí bãi đỗ xe ngay trên màn hình
+    showScanResultModal({
+      type: isCheckIn ? "checkin" : "checkout",
+      hoTen: student.hoTen,
+      mssv: student.mssv,
+      bienSo: student.bienSo,
+      slotId: targetSlotId,
+      zoneFullLabel: fullZoneLabel
+    });
+
     // Đẩy trạng thái + scanEvent đồng bộ thời gian thực lên Cloud (Phone <-> Laptop Admin)
     publishCloudSyncState(
       {
@@ -1874,7 +2151,7 @@ function onBarcodeScannedSuccess(rawCode) {
       scanEvent
     );
   } else {
-    // KHI QUÉT THẤT BẠI / KHÔNG KHỚP MÃ -> Phát 2 tiếng Bíp trầm 200Hz + Đọc "Không thể xác nhận."
+    // KHI QUÉT THẤT BẠI / KHÔNG KHỚP MÃ -> Phát 2 tiếng Bíp trầm 200Hz + Đọc "Không thể xác nhận." + Hiện Popup đỏ
     const eventId = "scan_fail_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7);
     const speechText = "Không thể xác nhận.";
     const scanEvent = {
@@ -1908,6 +2185,13 @@ function onBarcodeScannedSuccess(rawCode) {
       detail: "Từ chối mở barie: Mã không có trong Database UEH Mekong"
     });
     renderRecentActivityTable();
+
+    // Hiện Popup đỏ "KHÔNG THỂ XÁC NHẬN" với nút [🔄 Quét lại]
+    showScanResultModal({
+      type: "fail",
+      code: cleanCode,
+      reason: "Mã vạch không tồn tại trong hệ thống UEH Mekong."
+    });
 
     publishCloudSyncState(
       {
@@ -1958,31 +2242,34 @@ function triggerQuickStudentScan() {
   unlockAudioAndSpeech();
   const select = document.getElementById("quick-student-select");
   if (!select || !select.value) return;
-  lastScannedCode = ""; // Cho phép test bấm liên tục để đổi chiều Vào <-> Ra
-  onBarcodeScannedSuccess(select.value);
+  isScanModalOpen = false;
+  isScannerCooldown = false;
+  lastScannedCode = "";
+  onBarcodeScannedSuccess(select.value, false);
 }
 
 function triggerManualCodeScan() {
   unlockAudioAndSpeech();
   const input = document.getElementById("manual-scan-input");
+  isScanModalOpen = false;
+  isScannerCooldown = false;
   if (!input || !input.value.trim()) {
-    playFeedbackBeep(false);
-    speakVietnamese("Không thể xác nhận.");
-    updateScanStatusBanner(false, "KHÔNG THỂ XÁC NHẬN! Vui lòng nhập MSSV hoặc mã vạch.");
-    renderUnknownScannedCard("Trống");
+    onBarcodeScannedSuccess("", false);
     return;
   }
   lastScannedCode = "";
-  onBarcodeScannedSuccess(input.value.trim());
+  onBarcodeScannedSuccess(input.value.trim(), false);
 }
 
 function simulateStrangerScan() {
   unlockAudioAndSpeech();
+  isScanModalOpen = false;
+  isScannerCooldown = false;
   const randomStrangerCode = "99998888" + Math.floor(100 + Math.random() * 899);
   const input = document.getElementById("manual-scan-input");
   if (input) input.value = randomStrangerCode;
   lastScannedCode = "";
-  onBarcodeScannedSuccess(randomStrangerCode);
+  onBarcodeScannedSuccess(randomStrangerCode, false);
 }
 
 function updateScanStatusBanner(isSuccess, message) {
@@ -2854,6 +3141,7 @@ function relocateStudentToCoveredKhuA(mssv) {
 // 13. GIAO DIỆN [📱 APP SINH VIÊN] & THẺ MÃ VẠCH ĐIỆN TỬ UEH STUDENT
 // ==========================================================================
 function switchAppMode(mode) {
+  currentAppViewMode = mode === "student" ? "student" : "admin";
   const adminView = document.getElementById("admin-main-view");
   const studentView = document.getElementById("student-app-view");
   const btnAdmin = document.getElementById("btn-mode-admin");
@@ -2985,8 +3273,11 @@ function renderMobileStudentApp() {
 }
 
 function triggerScanFromMobileApp() {
+  unlockAudioAndSpeech();
+  isScanModalOpen = false;
+  isScannerCooldown = false;
   lastScannedCode = "";
-  onBarcodeScannedSuccess(currentMobileStudentMssv);
+  onBarcodeScannedSuccess(currentMobileStudentMssv, false);
 }
 
 function studentBookSlotFromApp() {
@@ -3491,9 +3782,12 @@ function openStudentDbModal() {
 function scanStudentByIndex(idx) {
   const stu = students[idx];
   if (!stu) return;
+  unlockAudioAndSpeech();
+  isScanModalOpen = false;
+  isScannerCooldown = false;
   switchSidebarTab("overview");
   lastScannedCode = "";
-  onBarcodeScannedSuccess(stu.mssv);
+  onBarcodeScannedSuccess(stu.mssv, false);
 }
 
 function openAddStudentModal() {
@@ -3674,10 +3968,13 @@ function closeBarcodeModal() {
 
 function scanCurrentModalStudentNow() {
   if (!currentModalStudent) return;
+  unlockAudioAndSpeech();
+  isScanModalOpen = false;
+  isScannerCooldown = false;
   closeBarcodeModal();
   switchSidebarTab("overview");
   lastScannedCode = "";
-  onBarcodeScannedSuccess(currentModalStudent.mssv);
+  onBarcodeScannedSuccess(currentModalStudent.mssv, false);
 }
 
 function downloadSampleBarcodeImage() {
