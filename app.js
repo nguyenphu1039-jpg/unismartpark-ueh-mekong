@@ -4795,10 +4795,10 @@ function switchSidebarTab(tabName) {
     }
     if (btn) {
       if (isActive) {
-        btn.className = "sidebar-nav-btn w-full px-3.5 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-between gap-2 transition bg-[#005f69] text-white shadow-sm shrink-0";
+        btn.className = "sidebar-nav-btn w-full px-2.5 py-2 rounded-xl font-bold text-xs flex items-center justify-between gap-1.5 transition bg-[#005f69] text-white shadow-sm shrink-0";
         if (btn.setAttribute) btn.setAttribute("aria-current", "page");
       } else {
-        btn.className = "sidebar-nav-btn w-full px-3.5 py-2.5 rounded-xl font-semibold text-xs sm:text-sm flex items-center justify-between gap-2 transition text-teal-100/80 hover:bg-white/10 hover:text-white shrink-0";
+        btn.className = "sidebar-nav-btn w-full px-2.5 py-2 rounded-xl font-semibold text-xs flex items-center justify-between gap-1.5 transition text-teal-100/80 hover:bg-white/10 hover:text-white shrink-0";
         if (btn.removeAttribute) btn.removeAttribute("aria-current");
       }
     }

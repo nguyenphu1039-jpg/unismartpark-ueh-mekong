@@ -44,7 +44,7 @@
   <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
 
   <!-- Custom Styles -->
-  <link rel="stylesheet" href="../styles.css?v=20261127-2212" />
+  <link rel="stylesheet" href="../styles.css?v=20261127-2220" />
 </head>
 <body data-app-role="admin" class="bg-[#f4f7f9] text-slate-800 min-h-screen flex flex-col">
 
@@ -93,35 +93,35 @@
       <!-- =================================================================
            TOP HEADER BAR (ADMIN DESKTOP DASHBOARD)
            ================================================================= -->
-      <header class="bg-white border-b border-slate-200/90 px-3 sm:px-5 py-2.5 flex flex-wrap items-center justify-between gap-2.5 sticky top-0 z-30 shadow-sm">
+      <header class="bg-white border-b border-slate-200/90 px-3 py-2 flex flex-wrap items-center justify-between gap-2 sticky top-0 z-30 shadow-sm">
         <!-- Left: Brand Logo & Title -->
-        <div class="flex items-center gap-3 sm:gap-4 min-w-0">
+        <div class="flex items-center gap-2.5 sm:gap-3 min-w-0">
           <button type="button" onclick="switchSidebarTab('overview')" class="flex items-center shrink-0 cursor-pointer select-none focus:outline-none" title="UEH University Smart Parking - Về trang Tổng quan">
             <img
               src="../assets/logo-ueh-smart-parking.png"
               alt="UEH University Smart Parking"
-              class="h-[44px] sm:h-[48px] w-auto max-w-[260px] sm:max-w-[290px] object-contain shrink-0"
+              class="h-[44px] min-[1600px]:h-[48px] w-auto max-w-[250px] min-[1600px]:max-w-[290px] object-contain shrink-0"
               style="mix-blend-mode: multiply;"
             />
           </button>
-          <div class="h-10 w-[1.5px] bg-slate-200 hidden sm:block shrink-0"></div>
+          <div class="h-9 w-[1.5px] bg-slate-200 hidden sm:block shrink-0"></div>
           <div class="min-w-0">
-            <div class="flex items-center gap-2">
-              <h1 class="text-sm sm:text-lg font-extrabold text-slate-800 tracking-tight leading-snug">
+            <div class="flex items-center gap-1.5">
+              <h1 class="text-sm sm:text-base font-extrabold text-slate-800 tracking-tight leading-snug truncate">
                 Hệ thống quản trị bãi giữ xe thông minh
               </h1>
-              <span class="hidden xl:inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-[#005f69] text-white shrink-0">
+              <span class="hidden 2xl:inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-[#005f69] text-white shrink-0">
                 ADMIN PORTAL
               </span>
             </div>
-            <p class="text-[11px] sm:text-xs text-slate-500 font-medium">
+            <p class="text-[11px] text-slate-500 font-medium truncate">
               Trường Đại học Kinh tế TP.HCM – Cơ sở Mekong
             </p>
           </div>
         </div>
 
         <!-- Right: Cloud Sync Badge, Admin Speaker Unlock, Weather + Flood Trigger, Clock, Reset, Bell -->
-        <div class="flex items-center flex-wrap gap-2 ml-auto">
+        <div class="flex items-center flex-wrap gap-1.5 ml-auto">
 
           <!-- Live Cloud Sync Status Badge -->
           <div id="cloud-sync-badge" class="flex items-center gap-1.5 bg-amber-50 border border-amber-200 text-amber-700 px-2.5 py-1.5 rounded-xl text-[11px] font-bold shadow-sm transition-all" title="Trạng thái đồng bộ thời gian thực qua MQTT WebSocket">
@@ -192,60 +192,60 @@
       </header>
 
       <!-- =================================================================
-           ADMIN MAIN VIEW
+           ADMIN MAIN VIEW (COMPACT DENSITY FOR 100% ZOOM LAPTOP FIT)
            ================================================================= -->
-      <main id="admin-main-view" class="flex-1 p-3 sm:p-4 lg:p-5 overflow-y-auto">
+      <main id="admin-main-view" class="flex-1 p-3 overflow-y-auto overflow-x-hidden min-w-0">
 
         <!-- Active Wrong-Plate / Flood Alarm Top Strip -->
-        <div id="admin-emergency-strip" class="hidden mb-4 rounded-2xl p-3.5 bg-red-600 text-white shadow-lg flex flex-wrap items-center justify-between gap-3">
-          <div class="flex items-center gap-3">
+        <div id="admin-emergency-strip" class="hidden mb-3 rounded-2xl p-3 bg-red-600 text-white shadow-lg flex flex-wrap items-center justify-between gap-2.5">
+          <div class="flex items-center gap-2.5">
             <div class="bg-white/20 p-2 rounded-xl animate-pulse">
-              <i data-lucide="siren" class="w-6 h-6"></i>
+              <i data-lucide="siren" class="w-5 h-5"></i>
             </div>
             <div>
-              <h4 id="emergency-strip-title" class="font-extrabold text-sm sm:text-base">CẢNH BÁO ĐỖ SAI VỊ TRÍ ĐẶT TRƯỚC!</h4>
+              <h4 id="emergency-strip-title" class="font-extrabold text-sm">CẢNH BÁO ĐỖ SAI VỊ TRÍ ĐẶT TRƯỚC!</h4>
               <p id="emergency-strip-desc" class="text-xs text-red-100">Phát hiện phương tiện không khớp biển số đăng ký tại ô đỗ.</p>
             </div>
           </div>
-          <button onclick="hideEmergencyStrip()" class="bg-white/20 hover:bg-white/30 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition">
+          <button onclick="hideEmergencyStrip()" class="bg-white/20 hover:bg-white/30 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition shrink-0">
             Đã xử lý / Đóng
           </button>
         </div>
 
         <!-- ===============================================================
-             TAB 1: TỔNG QUAN (3-COLUMN CORE DASHBOARD)
+             TAB 1: TỔNG QUAN (SMART RESPONSIVE FLEX: 310px CAMERA + FLEX-1 WORKSPACE)
              =============================================================== -->
-        <section id="tab-overview" class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+        <section id="tab-overview" class="flex flex-col lg:flex-row gap-3 items-start w-full min-w-0">
 
           <!-- *************************************************************
-               COLUMN 1 (LEFT - 3 COLS): THIẾT BỊ QUÉT TẠI CỔNG
+               COLUMN 1 (LEFT - FIXED 310px): THIẾT BỊ QUÉT TẠI CỔNG
                ************************************************************* -->
-          <div class="lg:col-span-3 bg-white rounded-2xl shadow-sm border border-slate-200/90 overflow-hidden flex flex-col">
-            <div class="bg-[#0d4a52] text-white px-4 py-3 flex items-center justify-between">
-              <div class="flex items-center gap-2">
-                <i data-lucide="scan-line" class="w-5 h-5 text-teal-300"></i>
-                <h2 class="font-bold text-sm sm:text-base tracking-tight">Thiết bị quét tại cổng</h2>
+          <div class="w-full lg:w-[310px] shrink-0 bg-white rounded-2xl shadow-sm border border-slate-200/90 overflow-hidden box-border min-w-0 flex flex-col">
+            <div class="bg-[#0d4a52] text-white px-3 py-2.5 flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1.5 min-w-0">
+                <i data-lucide="scan-line" class="w-4 h-4 text-teal-300 shrink-0"></i>
+                <h2 class="font-bold text-sm tracking-tight truncate">Thiết bị quét tại cổng</h2>
               </div>
-              <button onclick="testVoiceAI()" class="text-[11px] bg-white/15 hover:bg-white/25 px-2 py-1 rounded-lg flex items-center gap-1 text-teal-100 transition" title="Kiểm tra giọng đọc AI Tiếng Việt">
+              <button onclick="testVoiceAI()" class="text-[11px] bg-white/15 hover:bg-white/25 px-2 py-1 rounded-lg flex items-center gap-1 text-teal-100 transition shrink-0 whitespace-nowrap" title="Kiểm tra giọng đọc AI Tiếng Việt">
                 <i data-lucide="volume-2" class="w-3.5 h-3.5"></i> Loa AI
               </button>
             </div>
 
-            <div class="p-3.5 space-y-3 flex-1 flex flex-col">
+            <div class="p-3 space-y-2.5 flex-1 flex flex-col min-w-0 box-border">
               <!-- 2 Tabs: [Thẻ từ] and [Mã vạch UEH Student] -->
-              <div class="grid grid-cols-2 gap-2 bg-slate-100 p-1 rounded-xl border border-slate-200/70">
-                <button id="scan-tab-rfid" onclick="switchScanTab('rfid')" class="py-2 px-2.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition bg-[#005f69] text-white shadow-sm">
-                  <i data-lucide="credit-card" class="w-3.5 h-3.5"></i>
+              <div class="grid grid-cols-2 gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200/70">
+                <button id="scan-tab-rfid" onclick="switchScanTab('rfid')" class="py-1.5 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition bg-[#005f69] text-white shadow-sm whitespace-nowrap">
+                  <i data-lucide="credit-card" class="w-3.5 h-3.5 shrink-0"></i>
                   <span>Thẻ từ</span>
                 </button>
-                <button id="scan-tab-barcode" onclick="switchScanTab('barcode')" class="py-2 px-2.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition text-slate-600 hover:text-slate-900">
-                  <i data-lucide="qr-code" class="w-3.5 h-3.5"></i>
+                <button id="scan-tab-barcode" onclick="switchScanTab('barcode')" class="py-1.5 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition text-slate-600 hover:text-slate-900 whitespace-nowrap">
+                  <i data-lucide="qr-code" class="w-3.5 h-3.5 shrink-0"></i>
                   <span>Mã vạch UEH</span>
                 </button>
               </div>
 
               <!-- CAMERA VIEWFINDER BOX -->
-              <div class="scanner-frame rounded-xl h-48 sm:h-52 w-full flex flex-col items-center justify-center relative border border-slate-300 shadow-inner">
+              <div class="scanner-frame rounded-xl h-44 w-full flex flex-col items-center justify-center relative border border-slate-300 shadow-inner">
                 <div class="scanner-corner tl"></div>
                 <div class="scanner-corner tr"></div>
                 <div class="scanner-corner bl"></div>
@@ -254,84 +254,87 @@
 
                 <div id="qr-reader" class="w-full h-full hidden"></div>
 
-                <div id="scanner-idle-preview" class="flex flex-col items-center justify-center text-center p-3 z-10 w-full h-full bg-gradient-to-b from-slate-800/90 to-slate-900/95">
-                  <div class="bg-white rounded-xl p-2.5 shadow-lg border-2 border-slate-300 max-w-[195px] w-full flex flex-col items-center">
-                    <div class="flex items-center justify-between w-full text-[10px] font-bold text-[#005f69] border-b border-slate-100 pb-1 mb-1">
+                <div id="scanner-idle-preview" class="flex flex-col items-center justify-center text-center p-2.5 z-10 w-full h-full bg-gradient-to-b from-slate-800/90 to-slate-900/95">
+                  <div class="bg-white rounded-xl p-2 shadow-lg border-2 border-slate-300 max-w-[190px] w-full flex flex-col items-center">
+                    <div class="flex items-center justify-between w-full text-[10px] font-bold text-[#005f69] border-b border-slate-100 pb-0.5 mb-1">
                       <span>UEH STUDENT ID</span>
                       <span class="text-[#f26f21]">MEKONG</span>
                     </div>
-                    <svg id="scanner-preview-barcode" class="w-full h-12"></svg>
+                    <svg id="scanner-preview-barcode" class="w-full h-10"></svg>
                     <div id="scanner-preview-code-label" class="text-[11px] font-mono font-bold text-slate-700 mt-0.5">31251570287</div>
                   </div>
-                  <p id="scanner-hint-text" class="text-[10.5px] text-teal-200 font-medium mt-2 px-2">
-                    Tự động nhận tín hiệu từ App Sinh viên hoặc bật Camera quét trực tiếp tại cổng
+                  <p id="scanner-hint-text" class="text-[10px] text-teal-200 font-medium mt-1.5 px-1 leading-tight">
+                    Tự động nhận từ App Sinh viên hoặc bật Camera quét tại cổng
                   </p>
                 </div>
               </div>
 
-              <!-- SMART CAMERA CONTROLS -->
-              <div class="bg-slate-50 rounded-xl p-2.5 border border-slate-200/90 space-y-2">
-                <div class="text-[11px] font-bold text-slate-600 uppercase tracking-wider flex items-center justify-between">
-                  <span class="flex items-center gap-1"><i data-lucide="camera" class="w-3.5 h-3.5 text-[#005f69]"></i> Camera cổng Admin</span>
-                  <span id="camera-active-indicator" class="text-[10px] font-semibold text-slate-400">Đang chờ</span>
+              <!-- SMART CAMERA CONTROLS (OVERFLOW-SAFE AT 310px / 100% ZOOM) -->
+              <div class="bg-slate-50 rounded-xl p-2.5 border border-slate-200/90 space-y-2 overflow-hidden box-border min-w-0">
+                <div class="text-[11px] font-bold text-slate-600 uppercase tracking-wider flex items-center justify-between gap-1 min-w-0">
+                  <span class="flex items-center gap-1 truncate"><i data-lucide="camera" class="w-3.5 h-3.5 text-[#005f69] shrink-0"></i> Camera cổng Admin</span>
+                  <span id="camera-active-indicator" class="text-[10px] font-semibold text-slate-400 shrink-0 whitespace-nowrap">Đang chờ</span>
                 </div>
 
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                  <button id="btn-start-smart-cam" onclick="startSmartCameraScanner()" class="bg-[#005f69] hover:bg-[#0d4a52] text-white text-[11px] font-extrabold py-2 px-2 rounded-lg flex items-center justify-center gap-1 shadow-sm transition active:scale-95">
+                <!-- Camera Primary Action Row: Single-line buttons, zero clipping -->
+                <div class="flex items-center gap-1.5 w-full min-w-0">
+                  <button id="btn-start-smart-cam" onclick="startSmartCameraScanner()" class="flex-1 min-w-0 bg-[#005f69] hover:bg-[#0d4a52] text-white text-xs font-extrabold py-2 px-2 rounded-lg flex items-center justify-center gap-1 shadow-sm transition active:scale-95 whitespace-nowrap">
                     <span>📷 Bật Camera Quét Mã</span>
                   </button>
-                  <button id="btn-switch-cam-lens" onclick="switchCameraLens()" class="bg-slate-700 hover:bg-slate-800 text-white text-[11px] font-bold py-2 px-2 rounded-lg flex items-center justify-center gap-1 shadow-sm transition active:scale-95">
-                    <span>🔄 Đổi Camera</span>
+                  <button id="btn-switch-cam-lens" onclick="switchCameraLens()" class="shrink-0 bg-slate-700 hover:bg-slate-800 text-white text-xs font-bold py-2 px-2 rounded-lg flex items-center justify-center gap-1 shadow-sm transition active:scale-95 whitespace-nowrap">
+                    <span>🔄 Đổi Cam</span>
                   </button>
                 </div>
 
-                <div class="flex items-center gap-1.5">
-                  <select id="camera-device-select" onchange="onSelectCameraDevice(this.value)" class="flex-1 bg-white border border-slate-200 rounded-lg text-[11px] px-2 py-1.5 font-medium text-slate-700 focus:outline-none focus:border-[#005f69]">
+                <!-- Camera Device Selector Row -->
+                <div class="flex items-center gap-1.5 w-full min-w-0">
+                  <select id="camera-device-select" onchange="onSelectCameraDevice(this.value)" class="flex-1 w-full max-w-full min-w-0 truncate bg-white border border-slate-200 rounded-lg text-xs px-2 py-1.5 font-medium text-slate-700 focus:outline-none focus:border-[#005f69]">
                     <option value="">-- Danh sách tất cả Camera --</option>
                   </select>
-                  <button id="btn-stop-camera" onclick="stopCameraScanner()" class="hidden bg-red-100 hover:bg-red-200 text-red-700 text-[11px] font-bold px-2.5 py-1.5 rounded-lg transition shrink-0">
+                  <button id="btn-stop-camera" onclick="stopCameraScanner()" class="hidden bg-red-100 hover:bg-red-200 text-red-700 text-xs font-bold px-2 py-1.5 rounded-lg transition shrink-0 whitespace-nowrap">
                     ⏹️ Tắt
                   </button>
                 </div>
 
-                <div class="flex items-center gap-1.5">
-                  <label onclick="unlockAudioAndSpeech()" class="flex-1 cursor-pointer bg-orange-50 hover:bg-orange-100 text-[#f26f21] border border-orange-200 font-bold text-[11px] py-1.5 px-2.5 rounded-lg flex items-center justify-center gap-1.5 transition active:scale-95">
-                    <i data-lucide="image-plus" class="w-3.5 h-3.5"></i>
-                    <span>📸 Chụp / Tải ảnh mã vạch</span>
+                <!-- Upload / Download Barcode Row -->
+                <div class="flex items-center gap-1.5 w-full min-w-0">
+                  <label onclick="unlockAudioAndSpeech()" class="flex-1 min-w-0 cursor-pointer bg-orange-50 hover:bg-orange-100 text-[#f26f21] border border-orange-200 font-bold text-xs py-1.5 px-2 rounded-lg flex items-center justify-center gap-1.5 transition active:scale-95 whitespace-nowrap truncate">
+                    <i data-lucide="image-plus" class="w-3.5 h-3.5 shrink-0"></i>
+                    <span class="truncate">📸 Chụp / Tải ảnh mã vạch</span>
                     <input id="barcode-file-input" type="file" accept="image/*" capture="environment" class="hidden" onchange="handleBarcodeImageUpload(event)" />
                   </label>
-                  <button onclick="downloadSampleBarcodeImage()" class="bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-semibold py-1.5 px-2 rounded-lg transition" title="Tải ảnh mã vạch mẫu">
+                  <button onclick="downloadSampleBarcodeImage()" class="shrink-0 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-xs font-semibold py-1.5 px-2 rounded-lg transition" title="Tải ảnh mã vạch mẫu">
                     <i data-lucide="download" class="w-3.5 h-3.5"></i>
                   </button>
                 </div>
 
-                <!-- 2 Audio Test Buttons -->
-                <div class="grid grid-cols-2 gap-1.5 pt-1 border-t border-slate-200/80">
-                  <button onclick="testAudioSuccessButton()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] py-1.5 px-1.5 rounded-lg shadow-sm flex items-center justify-center gap-1 transition active:scale-95">
+                <!-- 2 Audio Test Buttons (Single-line crisp buttons) -->
+                <div class="grid grid-cols-2 gap-1.5 pt-1 border-t border-slate-200/80 w-full min-w-0">
+                  <button onclick="testAudioSuccessButton()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] py-2 px-1.5 rounded-lg shadow-sm flex items-center justify-center transition active:scale-95 whitespace-nowrap">
                     <span>🔊 Test: Thành công</span>
                   </button>
-                  <button onclick="testAudioFailButton()" class="bg-red-600 hover:bg-red-700 text-white font-bold text-[10px] py-1.5 px-1.5 rounded-lg shadow-sm flex items-center justify-center gap-1 transition active:scale-95">
+                  <button onclick="testAudioFailButton()" class="bg-red-600 hover:bg-red-700 text-white font-bold text-[11px] py-2 px-1.5 rounded-lg shadow-sm flex items-center justify-center transition active:scale-95 whitespace-nowrap">
                     <span>🔊 Test: Không hợp lệ</span>
                   </button>
                 </div>
 
-                <!-- Quick Test 10 Group Students & Manual Input -->
-                <div class="pt-1 border-t border-slate-200/80 space-y-1.5">
-                  <label class="block text-[10px] font-bold text-slate-500 uppercase">
-                    ⚡ Quét nhanh 1 trong 10 thành viên nhóm:
+                <!-- Quick Test 10 Group Students & Manual Input (STRICT MIN-W-0 + SHRINK-0 BUTTONS) -->
+                <div class="pt-1 border-t border-slate-200/80 space-y-1.5 w-full min-w-0">
+                  <label class="block text-[10px] font-bold text-slate-500 uppercase truncate">
+                    ⚡ Quét nhanh sinh viên trong danh sách:
                   </label>
-                  <div class="flex gap-1.5">
-                    <select id="quick-student-select" class="flex-1 bg-white border border-slate-200 rounded-lg text-xs px-2 py-1.5 font-semibold text-slate-800 focus:outline-none focus:border-[#005f69]"></select>
-                    <button onclick="triggerQuickStudentScan()" class="bg-[#f26f21] hover:bg-orange-600 text-white font-bold text-xs px-3 py-1.5 rounded-lg shadow-sm transition active:scale-95 shrink-0">
+                  <div class="flex items-center gap-1.5 w-full min-w-0">
+                    <select id="quick-student-select" class="flex-1 min-w-0 w-full truncate bg-white border border-slate-200 rounded-lg text-xs px-2 py-1.5 font-semibold text-slate-800 focus:outline-none focus:border-[#005f69]"></select>
+                    <button onclick="triggerQuickStudentScan()" class="shrink-0 whitespace-nowrap bg-[#f26f21] hover:bg-orange-600 text-white font-bold text-xs px-2.5 py-1.5 rounded-lg shadow-sm transition active:scale-95">
                       Quét mã
                     </button>
                   </div>
-                  <div class="flex gap-1.5">
-                    <input id="manual-scan-input" type="text" placeholder="Nhập MSSV / Mã lạ..." class="flex-1 bg-white border border-slate-200 rounded-lg text-[11px] px-2.5 py-1.5 focus:outline-none focus:border-[#005f69]" onkeydown="if(event.key==='Enter') triggerManualCodeScan()" />
-                    <button onclick="triggerManualCodeScan()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-[11px] px-2.5 py-1.5 rounded-lg transition">
+                  <div class="flex items-center gap-1.5 w-full min-w-0">
+                    <input id="manual-scan-input" type="text" placeholder="Nhập MSSV..." class="flex-1 min-w-0 w-full bg-white border border-slate-200 rounded-lg text-xs px-2 py-1.5 focus:outline-none focus:border-[#005f69]" onkeydown="if(event.key==='Enter') triggerManualCodeScan()" />
+                    <button onclick="triggerManualCodeScan()" class="shrink-0 whitespace-nowrap bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs px-2.5 py-1.5 rounded-lg transition">
                       Kiểm tra
                     </button>
-                    <button onclick="simulateStrangerScan()" class="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 font-bold text-[11px] px-2 py-1.5 rounded-lg transition">
+                    <button onclick="simulateStrangerScan()" class="shrink-0 whitespace-nowrap bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 font-bold text-xs px-2.5 py-1.5 rounded-lg transition">
                       Mã lạ
                     </button>
                   </div>
@@ -339,61 +342,60 @@
               </div>
 
               <!-- SCAN STATUS BANNER -->
-              <div id="scan-status-banner" class="flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 font-extrabold text-sm">
-                <i data-lucide="check-circle-2" class="w-5 h-5 text-emerald-600 shrink-0"></i>
-                <span id="scan-status-text">Quét thành công!</span>
+              <div id="scan-status-banner" class="flex items-center justify-center gap-2 py-2 px-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 font-extrabold text-xs">
+                <i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-600 shrink-0"></i>
+                <span id="scan-status-text" class="truncate">Quét thành công!</span>
               </div>
 
               <!-- SCANNED STUDENT INFO CARD -->
-              <div id="scanned-student-card" class="bg-[#f8fafc] rounded-xl p-3 border border-slate-200/90 space-y-2.5">
-                <div class="flex items-center gap-3">
-                  <div class="relative w-16 h-16 rounded-xl bg-gradient-to-b from-sky-100 to-teal-50 border border-slate-200 flex flex-col items-center justify-end overflow-hidden shrink-0 shadow-sm">
-                    <div id="scanned-avatar-circle" class="w-8 h-8 rounded-full bg-[#005f69] text-white font-extrabold text-xs flex items-center justify-center mb-1 shadow">
+              <div id="scanned-student-card" class="bg-[#f8fafc] rounded-xl p-2.5 border border-slate-200/90 space-y-2 min-w-0">
+                <div class="flex items-center gap-2.5 min-w-0">
+                  <div class="relative w-14 h-14 rounded-xl bg-gradient-to-b from-sky-100 to-teal-50 border border-slate-200 flex flex-col items-center justify-end overflow-hidden shrink-0 shadow-sm">
+                    <div id="scanned-avatar-circle" class="w-7 h-7 rounded-full bg-[#005f69] text-white font-extrabold text-xs flex items-center justify-center mb-1 shadow">
                       NT
                     </div>
                     <div class="w-full bg-white py-0.5 text-center border-t border-slate-100">
-                      <span class="text-[8px] font-black text-[#005f69] tracking-tighter">UEH MEKONG</span>
+                      <span class="text-[7px] font-black text-[#005f69] tracking-tighter">UEH MEKONG</span>
                     </div>
                   </div>
                   <div class="min-w-0 flex-1 space-y-0.5">
-                    <h3 id="scanned-student-name" class="font-extrabold text-sm sm:text-base text-slate-900 truncate">Nguyễn Đức Trí</h3>
-                    <p class="text-xs text-slate-600 font-medium">MSSV: <span id="scanned-student-mssv" class="font-bold text-slate-800 font-mono">31251570287</span></p>
-                    <p class="text-xs text-slate-600 font-medium">Ngày sinh: <span id="scanned-student-dob" class="font-semibold text-slate-700">24/07/2007</span></p>
-                    <p class="text-xs text-slate-600 font-medium">Biển số xe: <span id="scanned-student-plate" class="font-bold text-[#005f69]">62AU-006.41</span></p>
-                    <p class="text-[11px] text-slate-500 font-medium">Dòng xe: <span id="scanned-student-model" class="font-semibold text-slate-700">SH mode (Xe máy)</span></p>
+                    <h3 id="scanned-student-name" class="font-extrabold text-sm text-slate-900 truncate">Nguyễn Đức Trí</h3>
+                    <p class="text-[11px] text-slate-600 font-medium truncate">MSSV: <span id="scanned-student-mssv" class="font-bold text-slate-800 font-mono">31251570287</span></p>
+                    <p class="text-[11px] text-slate-600 font-medium truncate">NS: <span id="scanned-student-dob" class="font-semibold text-slate-700">24/07/2007</span> • BS: <span id="scanned-student-plate" class="font-bold text-[#005f69]">62AU-006.41</span></p>
+                    <p class="text-[11px] text-slate-500 font-medium truncate">Dòng xe: <span id="scanned-student-model" class="font-semibold text-slate-700">SH mode (Xe máy)</span></p>
                   </div>
                 </div>
 
                 <!-- Assigned Parking Slot & Zone Location Highlight Box -->
-                <div id="scanned-location-box" class="bg-teal-50/90 border border-teal-200 rounded-xl px-3 py-2 flex items-center justify-between">
-                  <span class="text-[11px] font-bold text-slate-600 flex items-center gap-1">
+                <div id="scanned-location-box" class="bg-teal-50/90 border border-teal-200 rounded-xl px-2.5 py-1.5 flex items-center justify-between gap-1.5 min-w-0">
+                  <span class="text-[11px] font-bold text-slate-600 flex items-center gap-1 shrink-0">
                     <i data-lucide="map-pin" class="w-3.5 h-3.5 text-[#f26f21]"></i>
-                    Vị trí ô đỗ:
+                    Vị trí ô:
                   </span>
-                  <span id="scanned-student-slot" class="text-xs font-black text-[#005f69]">Ô A02 - Bãi đỗ xe Khu A</span>
+                  <span id="scanned-student-slot" class="text-[11px] font-black text-[#005f69] truncate">Ô A02 - Bãi đỗ xe Khu A</span>
                 </div>
 
                 <!-- Check-in / Check-out 2-way Status Box -->
-                <div id="scanned-direction-box" class="bg-white rounded-xl p-2.5 border border-slate-200/80 flex items-center justify-between">
-                  <div class="flex items-center gap-2">
-                    <div id="scanned-direction-icon" class="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
+                <div id="scanned-direction-box" class="bg-white rounded-xl p-2 border border-slate-200/80 flex items-center justify-between gap-1.5 min-w-0">
+                  <div class="flex items-center gap-2 min-w-0">
+                    <div id="scanned-direction-icon" class="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold shrink-0">
                       <i data-lucide="log-in" class="w-4 h-4"></i>
                     </div>
-                    <div>
-                      <div id="scanned-direction-label" class="text-xs font-extrabold text-slate-800">Check-in (Vào bãi)</div>
-                      <div id="scanned-direction-time" class="text-[11px] text-slate-500 font-medium">09:24 - 27/11/2026</div>
+                    <div class="min-w-0">
+                      <div id="scanned-direction-label" class="text-xs font-extrabold text-slate-800 truncate">Check-in (Vào bãi)</div>
+                      <div id="scanned-direction-time" class="text-[10px] text-slate-500 font-medium truncate">09:24 - 27/11/2026</div>
                     </div>
                   </div>
-                  <span id="scanned-direction-badge" class="px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-700">Thành công</span>
+                  <span id="scanned-direction-badge" class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 shrink-0 whitespace-nowrap">Thành công</span>
                 </div>
 
-                <div class="grid grid-cols-2 gap-2">
-                  <button onclick="resetScannerCard()" class="w-full py-2 px-3 rounded-xl bg-[#eef4f8] hover:bg-slate-200/80 text-slate-700 font-bold text-xs flex items-center justify-center gap-1.5 transition">
-                    <i data-lucide="refresh-cw" class="w-3.5 h-3.5 text-[#005f69]"></i>
+                <div class="grid grid-cols-2 gap-1.5">
+                  <button onclick="resetScannerCard()" class="w-full py-1.5 px-2 rounded-xl bg-[#eef4f8] hover:bg-slate-200/80 text-slate-700 font-bold text-xs flex items-center justify-center gap-1 transition whitespace-nowrap">
+                    <i data-lucide="refresh-cw" class="w-3.5 h-3.5 text-[#005f69] shrink-0"></i>
                     <span>Làm mới</span>
                   </button>
-                  <button onclick="openCurrentStudentBarcodeModal()" class="w-full py-2 px-3 rounded-xl bg-[#005f69]/10 hover:bg-[#005f69]/20 text-[#005f69] font-bold text-xs flex items-center justify-center gap-1.5 transition">
-                    <i data-lucide="barcode" class="w-3.5 h-3.5"></i>
+                  <button onclick="openCurrentStudentBarcodeModal()" class="w-full py-1.5 px-2 rounded-xl bg-[#005f69]/10 hover:bg-[#005f69]/20 text-[#005f69] font-bold text-xs flex items-center justify-center gap-1 transition whitespace-nowrap">
+                    <i data-lucide="barcode" class="w-3.5 h-3.5 shrink-0"></i>
                     <span>Mã vạch SV</span>
                   </button>
                 </div>
@@ -402,84 +404,84 @@
           </div>
 
           <!-- *************************************************************
-               COLUMN 2 & 3 (CENTER + RIGHT SUB-COLUMN - 9 COLS)
+               COLUMN 2 & 3 (RIGHT WORKSPACE AREA - FLEX-1 MIN-W-0)
                ************************************************************* -->
-          <div class="lg:col-span-9 space-y-4">
+          <div class="flex-1 min-w-0 w-full space-y-3">
 
-            <!-- ROW 1: KPI SCOPE HEADER & 4 REAL-TIME KPI CARDS (SINGLE SOURCE OF TRUTH) -->
-            <div class="space-y-2.5">
+            <!-- ROW 1: KPI SCOPE HEADER & 4 REAL-TIME KPI CARDS (COMPACT DENSITY) -->
+            <div class="space-y-2">
               <!-- Scope Indicator & Quick Toggle -->
-              <div class="flex flex-wrap items-center justify-between gap-2 bg-white rounded-2xl px-3.5 py-2 border border-slate-200/90 shadow-sm">
+              <div class="flex flex-wrap items-center justify-between gap-2 bg-white rounded-2xl px-3 py-1.5 border border-slate-200/90 shadow-sm">
                 <div class="flex items-center gap-2 text-xs font-bold text-slate-700">
-                  <span class="inline-flex items-center justify-center w-6 h-6 rounded-lg bg-teal-50 text-[#005f69]">
+                  <span class="inline-flex items-center justify-center w-6 h-6 rounded-lg bg-teal-50 text-[#005f69] shrink-0">
                     <i data-lucide="gauge" class="w-3.5 h-3.5"></i>
                   </span>
                   <span>Phạm vi thống kê thực tế:</span>
                   <span id="kpi-scope-summary-text" class="text-[#005f69] font-extrabold">Toàn trường (7 bãi - 140 ô)</span>
                 </div>
                 <div class="bg-slate-100 p-0.5 rounded-xl flex items-center border border-slate-200 gap-0.5">
-                  <button id="btn-kpi-scope-all" onclick="setKPIScopeMode('all')" class="px-2.5 py-1 rounded-lg text-[11px] font-extrabold transition bg-[#005f69] text-white shadow-sm">
+                  <button id="btn-kpi-scope-all" onclick="setKPIScopeMode('all')" class="px-2.5 py-1 rounded-lg text-[11px] font-extrabold transition bg-[#005f69] text-white shadow-sm whitespace-nowrap">
                     Toàn trường (7 bãi - 140 ô)
                   </button>
-                  <button id="btn-kpi-scope-current" onclick="setKPIScopeMode('current')" class="px-2.5 py-1 rounded-lg text-[11px] font-bold transition text-slate-600 hover:text-slate-900">
+                  <button id="btn-kpi-scope-current" onclick="setKPIScopeMode('current')" class="px-2.5 py-1 rounded-lg text-[11px] font-bold transition text-slate-600 hover:text-slate-900 whitespace-nowrap">
                     Chỉ bãi đang xem (20 ô)
                   </button>
                 </div>
               </div>
 
               <!-- 4 KPI CARDS (100% CALCULATED FROM REAL SLOTS) -->
-              <div class="grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">
-                <div class="bg-[#effaf5] rounded-2xl p-3.5 sm:p-4 border border-emerald-200/80 shadow-sm flex items-center gap-3.5">
-                  <div class="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-emerald-500/15 text-emerald-600 flex items-center justify-center shrink-0">
-                    <i data-lucide="bike" class="w-7 h-7 sm:w-8 sm:h-8"></i>
+              <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div class="bg-[#effaf5] rounded-2xl p-3 border border-emerald-200/80 shadow-sm flex items-center gap-3">
+                  <div class="w-11 h-11 rounded-xl bg-emerald-500/15 text-emerald-600 flex items-center justify-center shrink-0">
+                    <i data-lucide="bike" class="w-6 h-6"></i>
                   </div>
-                  <div>
-                    <div id="kpi-free-count" class="text-2xl sm:text-3xl font-black text-emerald-700 leading-none">0</div>
-                    <div class="text-xs sm:text-sm font-bold text-slate-700 mt-1">Ô trống</div>
+                  <div class="min-w-0">
+                    <div id="kpi-free-count" class="text-2xl font-black text-emerald-700 leading-none">0</div>
+                    <div class="text-xs font-bold text-slate-700 mt-0.5 truncate">Ô trống</div>
                     <div id="kpi-free-pct" class="text-[11px] font-semibold text-slate-500">(0%)</div>
                   </div>
                 </div>
 
-                <div class="bg-[#eef6ff] rounded-2xl p-3.5 sm:p-4 border border-blue-200/80 shadow-sm flex items-center gap-3.5">
-                  <div class="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-blue-500/15 text-blue-600 flex items-center justify-center shrink-0">
-                    <i data-lucide="bike" class="w-7 h-7 sm:w-8 sm:h-8"></i>
+                <div class="bg-[#eef6ff] rounded-2xl p-3 border border-blue-200/80 shadow-sm flex items-center gap-3">
+                  <div class="w-11 h-11 rounded-xl bg-blue-500/15 text-blue-600 flex items-center justify-center shrink-0">
+                    <i data-lucide="bike" class="w-6 h-6"></i>
                   </div>
-                  <div>
-                    <div id="kpi-occupied-count" class="text-2xl sm:text-3xl font-black text-blue-700 leading-none">0</div>
-                    <div class="text-xs sm:text-sm font-bold text-slate-700 mt-1">Đang sử dụng</div>
+                  <div class="min-w-0">
+                    <div id="kpi-occupied-count" class="text-2xl font-black text-blue-700 leading-none">0</div>
+                    <div class="text-xs font-bold text-slate-700 mt-0.5 truncate">Đang sử dụng</div>
                     <div id="kpi-occupied-pct" class="text-[11px] font-semibold text-slate-500">(0%)</div>
                   </div>
                 </div>
 
-                <div class="bg-[#fff7ed] rounded-2xl p-3.5 sm:p-4 border border-orange-200/80 shadow-sm flex items-center gap-3.5">
-                  <div class="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-orange-500/15 text-[#f26f21] flex items-center justify-center shrink-0">
-                    <i data-lucide="calendar-clock" class="w-7 h-7 sm:w-8 sm:h-8"></i>
+                <div class="bg-[#fff7ed] rounded-2xl p-3 border border-orange-200/80 shadow-sm flex items-center gap-3">
+                  <div class="w-11 h-11 rounded-xl bg-orange-500/15 text-[#f26f21] flex items-center justify-center shrink-0">
+                    <i data-lucide="calendar-clock" class="w-6 h-6"></i>
                   </div>
-                  <div>
-                    <div id="kpi-reserved-count" class="text-2xl sm:text-3xl font-black text-[#f26f21] leading-none">0</div>
-                    <div class="text-xs sm:text-sm font-bold text-slate-700 mt-1">Đã đặt trước</div>
+                  <div class="min-w-0">
+                    <div id="kpi-reserved-count" class="text-2xl font-black text-[#f26f21] leading-none">0</div>
+                    <div class="text-xs font-bold text-slate-700 mt-0.5 truncate">Đã đặt trước</div>
                     <div id="kpi-reserved-pct" class="text-[11px] font-semibold text-slate-500">(0%)</div>
                   </div>
                 </div>
 
-                <div class="bg-[#fef2f2] rounded-2xl p-3.5 sm:p-4 border border-red-200/80 shadow-sm flex items-center gap-3.5">
-                  <div class="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-red-500/15 text-red-600 flex items-center justify-center shrink-0">
-                    <i data-lucide="alert-triangle" class="w-7 h-7 sm:w-8 sm:h-8"></i>
+                <div class="bg-[#fef2f2] rounded-2xl p-3 border border-red-200/80 shadow-sm flex items-center gap-3">
+                  <div class="w-11 h-11 rounded-xl bg-red-500/15 text-red-600 flex items-center justify-center shrink-0">
+                    <i data-lucide="alert-triangle" class="w-6 h-6"></i>
                   </div>
-                  <div>
-                    <div id="kpi-unavailable-count" class="text-2xl sm:text-3xl font-black text-red-600 leading-none">0</div>
-                    <div class="text-xs sm:text-sm font-bold text-slate-700 mt-1">Không khả dụng</div>
+                  <div class="min-w-0">
+                    <div id="kpi-unavailable-count" class="text-2xl font-black text-red-600 leading-none">0</div>
+                    <div class="text-xs font-bold text-slate-700 mt-0.5 truncate">Không khả dụng</div>
                     <div id="kpi-unavailable-pct" class="text-[11px] font-semibold text-slate-500">(0%)</div>
                   </div>
                 </div>
               </div>
             </div>
 
-            <!-- ROW 2: CENTER 2D MAP + RIGHT SUB-COLUMN (THÔNG TIN Ô ĐỖ & CẢNH BÁO) -->
-            <div class="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
+            <!-- ROW 2: SMART BREAKPOINT (LAPTOP 1024-1599px: FULL-WIDTH MAP ON TOP + 2-COL DETAILS/ALERTS BELOW; >=1600px: SIDE-BY-SIDE 8/4) -->
+            <div class="grid grid-cols-1 min-[1600px]:grid-cols-12 gap-3 items-start">
 
-              <!-- CENTER MAP PANEL (8 COLS) -->
-              <div class="xl:col-span-8 bg-white rounded-2xl shadow-sm border border-slate-200/90 p-4 flex flex-col justify-between">
+              <!-- CENTER MAP PANEL (FULL WIDTH ON LAPTOP 100% ZOOM, 8 COLS ON >=1600px) -->
+              <div class="min-[1600px]:col-span-8 bg-white rounded-2xl shadow-sm border border-slate-200/90 p-3 flex flex-col justify-between min-w-0">
                 <div class="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-100">
                   <div class="flex items-center gap-2 min-w-0 flex-1">
                     <i data-lucide="map-pin" class="w-5 h-5 text-[#005f69] shrink-0"></i>
@@ -577,10 +579,10 @@
                 </div>
               </div>
 
-              <!-- RIGHT SUB-COLUMN (4 COLS): THÔNG TIN Ô ĐỖ & CẢNH BÁO -->
-              <div class="xl:col-span-4 space-y-4">
-                <!-- TOP CARD: THÔNG TIN Ô ĐỖ -->
-                <div class="bg-white rounded-2xl shadow-sm border border-slate-200/90 p-4 space-y-3">
+              <!-- RIGHT SUB-COLUMN (2-COL GRID BELOW MAP ON 1024-1599px; 4-COL STACKED ON >=1600px) -->
+              <div class="min-[1600px]:col-span-4 grid grid-cols-1 md:grid-cols-2 min-[1600px]:grid-cols-1 gap-3 items-start min-w-0">
+                <!-- CARD 1: THÔNG TIN Ô ĐỖ -->
+                <div class="bg-white rounded-2xl shadow-sm border border-slate-200/90 p-3 space-y-2.5 min-w-0">
                   <div class="flex items-center justify-between border-b border-slate-100 pb-2.5">
                     <div class="flex items-center gap-2">
                       <i data-lucide="info" class="w-5 h-5 text-[#005f69]"></i>
@@ -673,8 +675,8 @@
                   </div>
                 </div>
 
-                <!-- BOTTOM CARD: CẢNH BÁO -->
-                <div class="bg-white rounded-2xl shadow-sm border border-slate-200/90 p-4 space-y-3">
+                <!-- CARD 2: CẢNH BÁO -->
+                <div class="bg-white rounded-2xl shadow-sm border border-slate-200/90 p-3 space-y-2.5 min-w-0">
                   <div class="flex items-center justify-between border-b border-slate-100 pb-2.5">
                     <div class="flex items-center gap-2">
                       <i data-lucide="bell-ring" class="w-5 h-5 text-red-500"></i>
@@ -699,8 +701,8 @@
             </div>
 
             <!-- ROW 3: THỐNG KÊ NHANH & HOẠT ĐỘNG GẦN ĐÂY -->
-            <div class="grid grid-cols-1 xl:grid-cols-12 gap-4 items-stretch">
-              <div class="xl:col-span-5 bg-white rounded-2xl shadow-sm border border-slate-200/90 p-4 flex flex-col justify-between">
+            <div class="grid grid-cols-1 xl:grid-cols-12 gap-3 items-stretch min-w-0">
+              <div class="xl:col-span-5 bg-white rounded-2xl shadow-sm border border-slate-200/90 p-3 flex flex-col justify-between min-w-0">
                 <div class="flex items-center justify-between border-b border-slate-100 pb-2.5 mb-3">
                   <div class="flex items-center gap-2">
                     <i data-lucide="bar-chart-3" class="w-5 h-5 text-[#005f69]"></i>
@@ -737,7 +739,7 @@
                 </div>
               </div>
 
-              <div class="xl:col-span-7 bg-white rounded-2xl shadow-sm border border-slate-200/90 p-4 flex flex-col justify-between">
+              <div class="xl:col-span-7 bg-white rounded-2xl shadow-sm border border-slate-200/90 p-3 flex flex-col justify-between min-w-0">
                 <div class="flex items-center justify-between border-b border-slate-100 pb-2.5 mb-2">
                   <div class="flex items-center gap-2">
                     <i data-lucide="history" class="w-5 h-5 text-[#005f69]"></i>
@@ -1017,46 +1019,46 @@
     </div>
 
     <!-- ===================================================================
-         RIGHTMOST VERTICAL SIDEBAR (#0d3b42 - ADMIN NAVIGATION)
+         RIGHTMOST VERTICAL SIDEBAR (#0d3b42 - COMPACT 190px FOR 100% ZOOM)
          =================================================================== -->
-    <aside class="w-full lg:w-64 bg-[#0d3b42] text-white flex flex-col justify-between shrink-0 select-none z-20 shadow-xl">
+    <aside class="w-full lg:w-[190px] bg-[#0d3b42] text-white flex flex-col justify-between shrink-0 select-none z-20 shadow-xl">
       <div>
-        <div class="p-4 border-b border-white/10 flex items-center justify-between">
-          <div class="flex items-center gap-2.5">
-            <div class="w-9 h-9 rounded-full bg-white text-[#0d3b42] font-black text-xs flex items-center justify-center shadow">AD</div>
-            <div>
-              <div class="font-extrabold text-sm leading-tight">Admin</div>
-              <div class="text-[10px] text-teal-300 font-medium">Quản trị viên UEH</div>
+        <div class="p-3 border-b border-white/10 flex items-center justify-between gap-1.5">
+          <div class="flex items-center gap-2 min-w-0">
+            <div class="w-8 h-8 rounded-full bg-white text-[#0d3b42] font-black text-xs flex items-center justify-center shadow shrink-0">AD</div>
+            <div class="min-w-0">
+              <div class="font-extrabold text-xs leading-tight truncate">Admin</div>
+              <div class="text-[10px] text-teal-300 font-medium truncate">Quản trị UEH</div>
             </div>
           </div>
-          <i data-lucide="chevron-down" class="w-4 h-4 text-teal-200"></i>
+          <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-teal-200 shrink-0"></i>
         </div>
 
-        <nav class="p-2.5 flex lg:flex-col gap-1 overflow-x-auto lg:overflow-visible">
-          <button id="nav-btn-overview" onclick="switchSidebarTab('overview')" class="sidebar-nav-btn w-full px-3.5 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-between gap-2 transition bg-[#005f69] text-white shadow-sm shrink-0">
-            <span class="flex items-center gap-2.5 min-w-0"><i data-lucide="home" class="w-4 h-4 shrink-0"></i><span class="truncate">Tổng quan</span></span>
+        <nav class="p-2 flex lg:flex-col gap-1 overflow-x-auto lg:overflow-visible">
+          <button id="nav-btn-overview" onclick="switchSidebarTab('overview')" class="sidebar-nav-btn w-full px-2.5 py-2 rounded-xl font-bold text-xs flex items-center justify-between gap-1.5 transition bg-[#005f69] text-white shadow-sm shrink-0">
+            <span class="flex items-center gap-2 min-w-0"><i data-lucide="home" class="w-4 h-4 shrink-0"></i><span class="truncate">Tổng quan</span></span>
           </button>
-          <button id="nav-btn-campus-map" onclick="switchSidebarTab('campus-map')" class="sidebar-nav-btn w-full px-3.5 py-2.5 rounded-xl font-semibold text-xs sm:text-sm flex items-center justify-between gap-2 transition text-teal-100/80 hover:bg-white/10 hover:text-white shrink-0">
-            <span class="flex items-center gap-2.5 min-w-0"><i data-lucide="map" class="w-4 h-4 shrink-0"></i><span class="truncate">Sơ đồ khuôn viên</span></span>
+          <button id="nav-btn-campus-map" onclick="switchSidebarTab('campus-map')" class="sidebar-nav-btn w-full px-2.5 py-2 rounded-xl font-semibold text-xs flex items-center justify-between gap-1.5 transition text-teal-100/80 hover:bg-white/10 hover:text-white shrink-0">
+            <span class="flex items-center gap-2 min-w-0"><i data-lucide="map" class="w-4 h-4 shrink-0"></i><span class="truncate">Sơ đồ khuôn viên</span></span>
           </button>
-          <button id="nav-btn-parking-lots" onclick="switchSidebarTab('parking-lots')" class="sidebar-nav-btn w-full px-3.5 py-2.5 rounded-xl font-semibold text-xs sm:text-sm flex items-center justify-between gap-2 transition text-teal-100/80 hover:bg-white/10 hover:text-white shrink-0">
-            <span class="flex items-center gap-2.5 min-w-0"><i data-lucide="bike" class="w-4 h-4 shrink-0"></i><span class="truncate">Bãi đỗ xe</span></span>
+          <button id="nav-btn-parking-lots" onclick="switchSidebarTab('parking-lots')" class="sidebar-nav-btn w-full px-2.5 py-2 rounded-xl font-semibold text-xs flex items-center justify-between gap-1.5 transition text-teal-100/80 hover:bg-white/10 hover:text-white shrink-0">
+            <span class="flex items-center gap-2 min-w-0"><i data-lucide="bike" class="w-4 h-4 shrink-0"></i><span class="truncate">Bãi đỗ xe</span></span>
           </button>
-          <button id="nav-btn-history" onclick="switchSidebarTab('history')" class="sidebar-nav-btn w-full px-3.5 py-2.5 rounded-xl font-semibold text-xs sm:text-sm flex items-center justify-between gap-2 transition text-teal-100/80 hover:bg-white/10 hover:text-white shrink-0">
-            <span class="flex items-center gap-2.5 min-w-0"><i data-lucide="history" class="w-4 h-4 shrink-0"></i><span class="truncate">Lịch sử ra vào</span></span>
+          <button id="nav-btn-history" onclick="switchSidebarTab('history')" class="sidebar-nav-btn w-full px-2.5 py-2 rounded-xl font-semibold text-xs flex items-center justify-between gap-1.5 transition text-teal-100/80 hover:bg-white/10 hover:text-white shrink-0">
+            <span class="flex items-center gap-2 min-w-0"><i data-lucide="history" class="w-4 h-4 shrink-0"></i><span class="truncate">Lịch sử ra vào</span></span>
           </button>
-          <button id="nav-btn-students" onclick="switchSidebarTab('students')" class="sidebar-nav-btn w-full px-3.5 py-2.5 rounded-xl font-semibold text-xs sm:text-sm flex items-center justify-between gap-2 transition text-teal-100/80 hover:bg-white/10 hover:text-white shrink-0">
-            <span class="flex items-center gap-2.5 min-w-0"><i data-lucide="users" class="w-4 h-4 shrink-0"></i><span class="truncate">Cơ sở dữ liệu Sinh viên</span></span>
+          <button id="nav-btn-students" onclick="switchSidebarTab('students')" class="sidebar-nav-btn w-full px-2.5 py-2 rounded-xl font-semibold text-xs flex items-center justify-between gap-1.5 transition text-teal-100/80 hover:bg-white/10 hover:text-white shrink-0" title="Cơ sở dữ liệu Sinh viên">
+            <span class="flex items-center gap-2 min-w-0"><i data-lucide="users" class="w-4 h-4 shrink-0"></i><span class="leading-tight text-left">Cơ sở dữ liệu Sinh viên</span></span>
             <span id="sidebar-student-count-badge" class="bg-[#f26f21] text-white text-[10px] font-extrabold px-1.5 py-0.5 rounded-md shrink-0">10</span>
           </button>
-          <button id="nav-btn-alerts" onclick="switchSidebarTab('alerts')" class="sidebar-nav-btn w-full px-3.5 py-2.5 rounded-xl font-semibold text-xs sm:text-sm flex items-center justify-between gap-2 transition text-teal-100/80 hover:bg-white/10 hover:text-white shrink-0">
-            <span class="flex items-center gap-2.5 min-w-0"><i data-lucide="alert-triangle" class="w-4 h-4 shrink-0"></i><span class="truncate">Cảnh báo</span></span>
+          <button id="nav-btn-alerts" onclick="switchSidebarTab('alerts')" class="sidebar-nav-btn w-full px-2.5 py-2 rounded-xl font-semibold text-xs flex items-center justify-between gap-1.5 transition text-teal-100/80 hover:bg-white/10 hover:text-white shrink-0">
+            <span class="flex items-center gap-2 min-w-0"><i data-lucide="alert-triangle" class="w-4 h-4 shrink-0"></i><span class="truncate">Cảnh báo</span></span>
           </button>
-          <button id="nav-btn-stats" onclick="switchSidebarTab('stats')" class="sidebar-nav-btn w-full px-3.5 py-2.5 rounded-xl font-semibold text-xs sm:text-sm flex items-center justify-between gap-2 transition text-teal-100/80 hover:bg-white/10 hover:text-white shrink-0">
-            <span class="flex items-center gap-2.5 min-w-0"><i data-lucide="bar-chart-2" class="w-4 h-4 shrink-0"></i><span class="truncate">Thống kê</span></span>
+          <button id="nav-btn-stats" onclick="switchSidebarTab('stats')" class="sidebar-nav-btn w-full px-2.5 py-2 rounded-xl font-semibold text-xs flex items-center justify-between gap-1.5 transition text-teal-100/80 hover:bg-white/10 hover:text-white shrink-0">
+            <span class="flex items-center gap-2 min-w-0"><i data-lucide="bar-chart-2" class="w-4 h-4 shrink-0"></i><span class="truncate">Thống kê</span></span>
           </button>
-          <button id="nav-btn-settings" onclick="switchSidebarTab('settings')" class="sidebar-nav-btn w-full px-3.5 py-2.5 rounded-xl font-semibold text-xs sm:text-sm flex items-center justify-between gap-2 transition text-teal-100/80 hover:bg-white/10 hover:text-white shrink-0">
-            <span class="flex items-center gap-2.5 min-w-0"><i data-lucide="settings" class="w-4 h-4 shrink-0"></i><span class="truncate">Cài đặt</span></span>
+          <button id="nav-btn-settings" onclick="switchSidebarTab('settings')" class="sidebar-nav-btn w-full px-2.5 py-2 rounded-xl font-semibold text-xs flex items-center justify-between gap-1.5 transition text-teal-100/80 hover:bg-white/10 hover:text-white shrink-0">
+            <span class="flex items-center gap-2 min-w-0"><i data-lucide="settings" class="w-4 h-4 shrink-0"></i><span class="truncate">Cài đặt</span></span>
           </button>
         </nav>
       </div>
@@ -1205,6 +1207,6 @@
   </div>
 
   <!-- Shared Application Logic (Versioned Cache-Busting) -->
-  <script src="../app.js?v=20261127-2212"></script>
+  <script src="../app.js?v=20261127-2220"></script>
 </body>
 </html>
