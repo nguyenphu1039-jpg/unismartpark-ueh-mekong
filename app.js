@@ -121,14 +121,17 @@ let isInlineCampusMapOpen = false;
 let isFloodSimActive = false;
 let voiceAIEnabled = true;
 
-// Global KPI base counters (matching prompt: 120 Trống, 150 Đang sử dụng, 15 Đặt trước, 5 Không khả dụng)
+// Phạm vi thống kê KPI thực tế: "all" (Toàn trường 7 bãi) | "current" (Chỉ bãi đang xem)
+let kpiScopeMode = "all";
+
+// Bộ đếm dẫn xuất từ sơ đồ thực tế (KHÔNG chứa hằng số cộng thêm hay số liệu giả định)
 let kpiStats = {
-  free: 120,
-  occupied: 150,
-  reserved: 15,
-  unavailable: 5,
-  totalIn: 1320,
-  totalOut: 1290
+  free: 0,
+  occupied: 0,
+  reserved: 0,
+  unavailable: 0,
+  totalIn: 0,
+  totalOut: 0
 };
 
 // Scanner State
@@ -192,7 +195,10 @@ document.addEventListener("DOMContentLoaded", () => {
   loadDatabase();
   buildAllParkingZones();
   initDefaultLogsAndAlerts();
+  kpiStats.totalIn = activityLogs.filter(l => l.badgeType === "in").length;
+  kpiStats.totalOut = activityLogs.filter(l => l.badgeType === "out").length;
   loadFullStateSnapshotFromLocal();
+  syncDerivedKPIStatsObject();
   populateZoneDropdown();
   populateStudentDropdowns();
 
@@ -414,13 +420,14 @@ function connectToMqttBroker(brokerIdx) {
 }
 
 function buildFullSyncState(lastAction = null, scanEvent = null) {
+  syncDerivedKPIStatsObject();
   return {
-    version: 3,
+    version: 4,
     senderId: CLIENT_SESSION_ID,
     timestamp: Date.now(),
     students: students,
     parkingZones: parkingZones,
-    kpiStats: kpiStats,
+    kpiStats: { ...kpiStats },
     activityLogs: activityLogs.slice(0, 35),
     systemAlerts: systemAlerts.slice(0, 20),
     isFloodSimActive: isFloodSimActive,
@@ -444,10 +451,14 @@ function loadFullStateSnapshotFromLocal() {
     if (snap && Array.isArray(snap.students) && snap.parkingZones) {
       students = snap.students;
       parkingZones = snap.parkingZones;
-      if (snap.kpiStats) kpiStats = snap.kpiStats;
+      if (snap.version >= 4 && snap.kpiStats) {
+        kpiStats.totalIn = Number(snap.kpiStats.totalIn) || 0;
+        kpiStats.totalOut = Number(snap.kpiStats.totalOut) || 0;
+      }
       if (Array.isArray(snap.activityLogs) && snap.activityLogs.length > 0) activityLogs = snap.activityLogs;
       if (Array.isArray(snap.systemAlerts) && snap.systemAlerts.length > 0) systemAlerts = snap.systemAlerts;
       isFloodSimActive = Boolean(snap.isFloodSimActive);
+      syncDerivedKPIStatsObject();
     }
   } catch (e) {}
 }
@@ -479,10 +490,14 @@ function applyCloudSyncState(payload, isFirstRetainedPacket = false) {
 
   students = payload.students;
   parkingZones = payload.parkingZones;
-  if (payload.kpiStats) kpiStats = payload.kpiStats;
+  if (payload.version >= 4 && payload.kpiStats) {
+    kpiStats.totalIn = Number(payload.kpiStats.totalIn) || 0;
+    kpiStats.totalOut = Number(payload.kpiStats.totalOut) || 0;
+  }
   if (Array.isArray(payload.activityLogs)) activityLogs = payload.activityLogs;
   if (Array.isArray(payload.systemAlerts)) systemAlerts = payload.systemAlerts;
   isFloodSimActive = Boolean(payload.isFloodSimActive);
+  syncDerivedKPIStatsObject();
 
   saveDatabase();
   try {
@@ -505,6 +520,7 @@ function applyCloudSyncState(payload, isFirstRetainedPacket = false) {
     renderNotificationsPopover();
     renderStudentDatabaseTable();
     renderCampusMapViews();
+    renderStatsBreakdown();
   }
 
   // Xử lý scanEvent đồng bộ giữa 2 Link (Điện thoại Sinh viên <-> Máy tính Admin) kèm chống lặp F5
@@ -624,10 +640,14 @@ function applyCloudSyncState(payload, isFirstRetainedPacket = false) {
         const pushBanner = document.getElementById("push-notification-banner");
         if (pushBanner) pushBanner.classList.remove("hidden");
       }
-    } else if (act.type === "flood_off" || act.type === "reset") {
+    } else if (act.type === "flood_off" || act.type === "reset" || act.type === "clear_all_zones") {
       dismissPushBanner();
       dismissStudentFloodModal();
       hideEmergencyStrip();
+      if (APP_ROLE === "admin") {
+        renderKPICards();
+        renderStatsBreakdown();
+      }
     } else if (act.type === "flood_relocate") {
       dismissPushBanner();
       dismissStudentFloodModal();
@@ -684,17 +704,12 @@ function resetDefaultDatabase() {
   students = DEFAULT_STUDENTS.map(s => ({ ...s }));
   saveDatabase();
   isFloodSimActive = false;
-  kpiStats = {
-    free: 120,
-    occupied: 150,
-    reserved: 15,
-    unavailable: 5,
-    totalIn: 1320,
-    totalOut: 1290
-  };
   currentZoneId = "khu-a";
   buildAllParkingZones();
   initDefaultLogsAndAlerts();
+  kpiStats.totalIn = activityLogs.filter(l => l.badgeType === "in").length;
+  kpiStats.totalOut = activityLogs.filter(l => l.badgeType === "out").length;
+  syncDerivedKPIStatsObject();
   populateZoneDropdown();
   populateStudentDropdowns();
   render20SlotGrid();
@@ -707,9 +722,13 @@ function resetDefaultDatabase() {
   renderNotificationsPopover();
   renderStudentDatabaseTable();
   renderCampusMapViews();
+  renderStatsBreakdown();
   renderMobileStudentApp();
+  renderStudentParkingTab();
+  renderStudentNotificationsTab();
   updateWeatherWidgetUI();
   dismissPushBanner();
+  dismissStudentFloodModal();
   hideEmergencyStrip();
   publishCloudSyncState({ type: "reset" });
   playFeedbackBeep(true);
@@ -815,7 +834,7 @@ function syncSlotsWithStudents() {
   });
 
   students.forEach(stu => {
-    if (!stu.oDo || stu.trangThaiGui === "Đã lấy xe") return;
+    if (!stu.oDo || ["Đã lấy xe", "Chưa gửi", "Ngoài bãi"].includes(stu.trangThaiGui)) return;
     const targetCode = stu.oDo.trim().toUpperCase();
     for (const zId of Object.keys(parkingZones)) {
       const foundSlot = parkingZones[zId].find(s => s.code.toUpperCase() === targetCode);
@@ -960,6 +979,7 @@ function selectParkingZone(zoneId) {
   render20SlotGrid();
   const firstSlot = parkingZones[zoneId][0];
   if (firstSlot) selectSlot(firstSlot.code);
+  renderKPICards();
   renderCampusMapViews();
 }
 
@@ -1198,16 +1218,6 @@ function setSlotDirectStatus(newStatus, targetSlotCode = null, isFromQuickCycle 
   const slot = slots.find(s => s.code === codeToEdit);
   if (!slot) return;
 
-  const oldStatus = slot.status;
-  if (oldStatus !== newStatus) {
-    if (typeof kpiStats[oldStatus] === "number") {
-      kpiStats[oldStatus] = Math.max(0, kpiStats[oldStatus] - 1);
-    }
-    if (typeof kpiStats[newStatus] === "number") {
-      kpiStats[newStatus] = kpiStats[newStatus] + 1;
-    }
-  }
-
   const directStuSelect = document.getElementById("slot-direct-student-select");
   const customPlateInput = document.getElementById("slot-direct-custom-plate");
   const selectedMssv = directStuSelect ? directStuSelect.value : "";
@@ -1218,7 +1228,8 @@ function setSlotDirectStatus(newStatus, targetSlotCode = null, isFromQuickCycle 
     if (slot.studentMssv) {
       const prevStu = students.find(s => s.mssv === slot.studentMssv);
       if (prevStu && prevStu.oDo === slot.code) {
-        prevStu.trangThaiGui = "Đã lấy xe";
+        prevStu.trangThaiGui = "Chưa gửi";
+        prevStu.oDo = "";
       }
     }
     slot.status = "free";
@@ -1266,7 +1277,8 @@ function setSlotDirectStatus(newStatus, targetSlotCode = null, isFromQuickCycle 
     if (slot.studentMssv) {
       const prevStu = students.find(s => s.mssv === slot.studentMssv);
       if (prevStu && prevStu.oDo === slot.code) {
-        prevStu.trangThaiGui = "Đã lấy xe";
+        prevStu.trangThaiGui = "Chưa gửi";
+        prevStu.oDo = "";
       }
     }
     slot.status = "unavailable";
@@ -1303,6 +1315,7 @@ function setSlotDirectStatus(newStatus, targetSlotCode = null, isFromQuickCycle 
   renderRecentActivityTable();
   renderStudentDatabaseTable();
   renderCampusMapViews();
+  renderStatsBreakdown();
   renderMobileStudentApp();
 
   publishCloudSyncState({
@@ -1363,59 +1376,85 @@ function applyCustomVehicleToSelectedSlot() {
   setSlotDirectStatus(targetStatus, slot.code, false);
 }
 
-function resetAllSlotsInCurrentZoneToFree() {
-  const slots = parkingZones[currentZoneId] || [];
-  if (slots.length === 0) return;
+/**
+ * Làm trống 100% toàn bộ tất cả 7 bãi đỗ xe (Nhà xe, Ngoài trời, Xe máy, Ô tô):
+ * - Đưa toàn bộ 140 ô về trạng thái Trống ("free") và xóa sạch thông tin xe / người đặt gắn trong ô.
+ * - Đưa trạng thái gửi xe của toàn bộ sinh viên về "Chưa gửi" và xóa mã ô đỗ cũ.
+ * - Cập nhật 4 thẻ KPI về chính xác: Ô trống = tongSoO (100%), còn lại = 0 (0%), Tỷ lệ sử dụng = 0%.
+ * - Lưu đè localStorage và phát gói tin MQTT (retain: true, qos: 1) để đồng bộ Link Admin <-> Link Sinh viên.
+ */
+function clearAllSevenZonesToFree() {
+  unlockAudioAndSpeech();
+  let totalClearedSlots = 0;
 
-  slots.forEach(slot => {
-    if (slot.status !== "free") {
-      if (typeof kpiStats[slot.status] === "number") {
-        kpiStats[slot.status] = Math.max(0, kpiStats[slot.status] - 1);
-      }
-      kpiStats.free += 1;
-    }
-    if (slot.studentMssv) {
-      const stu = students.find(s => s.mssv === slot.studentMssv);
-      if (stu && stu.oDo === slot.code) {
-        stu.trangThaiGui = "Đã lấy xe";
-      }
-    }
-    slot.status = "free";
-    slot.studentMssv = null;
-    slot.studentName = null;
-    slot.licensePlate = null;
-    slot.note = "Sẵn sàng sử dụng";
+  // 1. Duyệt qua TẤT CẢ 7 bãi đỗ xe và chuyển 100% ô đỗ về Trống ("free")
+  Object.keys(parkingZones).forEach(zId => {
+    const zSlots = parkingZones[zId] || [];
+    zSlots.forEach(slot => {
+      slot.status = "free";
+      slot.studentMssv = null;
+      slot.studentName = null;
+      slot.licensePlate = null;
+      slot.note = "Sẵn sàng sử dụng";
+      totalClearedSlots += 1;
+    });
   });
+
+  // 2. Tắt chế độ giả lập ngập nước nếu đang bật để toàn bộ 7 bãi sạch 100%
+  isFloodSimActive = false;
+  dismissPushBanner();
+  dismissStudentFloodModal();
+  hideEmergencyStrip();
+
+  // 3. Chuyển trạng thái gửi xe của toàn bộ sinh viên về "Chưa gửi" để không còn dữ liệu rác
+  students.forEach(stu => {
+    stu.trangThaiGui = "Chưa gửi";
+    stu.oDo = "";
+  });
+
+  // 4. Đồng bộ lại KPI hoàn toàn từ sơ đồ thực tế (Ô trống = 140 (100%), Đang sử dụng = 0, Đặt trước = 0, Không khả dụng = 0)
+  kpiStats.totalIn = 0;
+  kpiStats.totalOut = 0;
+  syncDerivedKPIStatsObject();
 
   saveDatabase();
 
-  const zoneMeta = PARKING_ZONES_META.find(z => z.id === currentZoneId);
-  const zoneShort = zoneMeta ? zoneMeta.prefix : "A";
-
   addActivityLog({
-    vehicle: currentVehicleFilter || "Xe máy",
-    plate: "TẤT CẢ 20 Ô",
-    studentName: `Admin đặt lại tất cả ô (${zoneShort}01-${zoneShort}20) -> Trống`,
+    vehicle: "Toàn trường",
+    plate: `7 BÃI (${totalClearedSlots} Ô)`,
+    studentName: `Admin làm trống toàn bộ 7 bãi (${totalClearedSlots}/${totalClearedSlots} ô Trống)`,
     mssv: "ADMIN",
-    slot: `${zoneShort}01-${zoneShort}20`,
+    slot: "TẤT CẢ",
     status: "Trống",
     badgeType: "out",
-    detail: "Làm trống toàn bộ 20 ô đỗ xe trong khu vực"
+    detail: `Đã giải phóng 100% toàn bộ ${totalClearedSlots} ô trên 7 bãi đỗ xe UEH Mekong`
   });
 
   playFeedbackBeep(true);
+  updateWeatherWidgetUI();
+  populateStudentDropdowns();
   render20SlotGrid();
-  selectSlot(slots[0].code);
+  const currSlots = parkingZones[currentZoneId] || [];
+  if (currSlots.length > 0) selectSlot(currSlots[0].code);
   renderKPICards();
   renderRecentActivityTable();
   renderStudentDatabaseTable();
   renderCampusMapViews();
+  renderStatsBreakdown();
   renderMobileStudentApp();
+  renderStudentParkingTab();
+  renderStudentNotificationsTab();
 
+  // 5. Lưu đè localStorage + Đẩy gói tin trạng thái mới lên MQTT (retain: true, qos: 1)
   publishCloudSyncState({
-    type: "zone_clear",
-    zoneId: currentZoneId
+    type: "clear_all_zones",
+    totalClearedSlots: totalClearedSlots
   });
+}
+
+// Giữ tên hàm tương thích ngược nếu gọi từ nơi khác
+function resetAllSlotsInCurrentZoneToFree() {
+  clearAllSevenZonesToFree();
 }
 
 // ==========================================================================
@@ -2106,11 +2145,10 @@ function onBarcodeScannedSuccess(rawCode, fromLiveCamera = false) {
       const spokenSlot = formatSlotCodeForSpeech(targetSlotId);
       speechText = `Xác nhận ra cổng thành công. Đã giải phóng ô ${spokenSlot}.`;
 
-      student.trangThaiGui = "Đã lấy xe";
+      student.trangThaiGui = "Chưa gửi";
+      student.oDo = "";
       freeStudentSlot(student.mssv, targetSlotId);
 
-      kpiStats.occupied = Math.max(0, kpiStats.occupied - 1);
-      kpiStats.free += 1;
       kpiStats.totalOut += 1;
 
       addActivityLog({
@@ -2138,12 +2176,6 @@ function onBarcodeScannedSuccess(rawCode, fromLiveCamera = false) {
       const spokenSlot = formatSlotCodeForSpeech(targetSlotId);
       speechText = `Xác nhận thành công. Vị trí đỗ xe của bạn là ô ${spokenSlot}, ${cleanZoneName}.`;
 
-      if (wasReserved) {
-        kpiStats.reserved = Math.max(0, kpiStats.reserved - 1);
-      } else {
-        kpiStats.free = Math.max(0, kpiStats.free - 1);
-      }
-      kpiStats.occupied += 1;
       kpiStats.totalIn += 1;
 
       addActivityLog({
@@ -2803,11 +2835,7 @@ function verifyIncomingVehiclePlate() {
         saveDatabase();
       }
 
-      if (wasReserved) {
-        kpiStats.reserved = Math.max(0, kpiStats.reserved - 1);
-        kpiStats.occupied += 1;
-      }
-
+      kpiStats.totalIn += 1;
       hideEmergencyStrip();
       playFeedbackBeep(true);
       speakVietnamese(`Xác thực biển số chính xác tại ô ${slot.code}. Chuyển sang trạng thái đang sử dụng.`);
@@ -2889,9 +2917,7 @@ function verifyIncomingVehiclePlate() {
       saveDatabase();
     }
 
-    kpiStats.free = Math.max(0, kpiStats.free - 1);
-    kpiStats.occupied += 1;
-
+    kpiStats.totalIn += 1;
     playFeedbackBeep(true);
     speakVietnamese(`Đã ghi nhận xe ${incomingPlate} vào ô ${slot.code}`);
 
@@ -2988,13 +3014,13 @@ function confirmReserveSlot() {
 
   const stu = students.find(s => s.mssv === mssv);
   if (stu) {
+    if (stu.oDo && stu.oDo !== slot.code) {
+      freeStudentSlot(stu.mssv, stu.oDo);
+    }
     stu.oDo = slot.code;
     stu.trangThaiGui = "Đặt trước";
     saveDatabase();
   }
-
-  kpiStats.free = Math.max(0, kpiStats.free - 1);
-  kpiStats.reserved += 1;
 
   addActivityLog({
     vehicle: currentVehicleFilter || "Xe máy",
@@ -3036,15 +3062,22 @@ function toggleFloodSimulation() {
       const zSlots = parkingZones[zId] || [];
       zSlots.forEach((s, idx) => {
         if (idx < 14) {
+          if (s.studentMssv) {
+            const stu = students.find(st => st.mssv === s.studentMssv);
+            if (stu && stu.oDo === s.code) {
+              stu.trangThaiGui = "Chưa gửi";
+              stu.oDo = "";
+            }
+          }
           s.status = "unavailable";
+          s.studentMssv = null;
+          s.studentName = null;
+          s.licensePlate = null;
           s.note = "Không khả dụng / Nguy cơ ngập nước bờ sông";
         }
       });
     });
-
-    // Cập nhật chỉ số KPI Không khả dụng
-    kpiStats.unavailable = 28;
-    kpiStats.free = 97;
+    saveDatabase();
 
     // 2. Thêm cảnh báo khẩn vào danh sách Cảnh báo & Nhật ký
     const floodAlertMsg = "Cảnh báo mưa lớn & nguy cơ ngập tại bãi xe ngoài trời dọc bờ sông! Hệ thống đề xuất di chuyển phương tiện sang Khu A (Nhà xe có mái che)";
@@ -3085,12 +3118,17 @@ function toggleFloodSimulation() {
     // Chuyển góc nhìn sang Bãi đỗ xe sau KTX B (Ngoài trời dọc bờ sông) để thấy các ô đỏ ngập nước trực quan
     selectParkingZone("sau-ktx-b");
   } else {
-    // Khôi phục thời tiết bình thường
-    kpiStats.unavailable = 5;
-    kpiStats.free = 120;
-    buildAllParkingZones();
-    syncSlotsWithStudents();
+    // Khôi phục thời tiết bình thường: Trả các ô bị đóng do ngập nước về Trống ("free") mà không ghi đè dữ liệu khác
+    Object.values(parkingZones).forEach(zSlots => {
+      zSlots.forEach(s => {
+        if (s.status === "unavailable" && s.note && s.note.toLowerCase().includes("ngập")) {
+          s.status = "free";
+          s.note = "Sẵn sàng sử dụng";
+        }
+      });
+    });
     dismissPushBanner();
+    dismissStudentFloodModal();
     const mobileFloodCard = document.getElementById("mobile-flood-alert-card");
     if (mobileFloodCard) mobileFloodCard.classList.add("hidden");
     selectParkingZone("khu-a");
@@ -3104,7 +3142,10 @@ function toggleFloodSimulation() {
   renderRecentActivityTable();
   renderNotificationsPopover();
   renderCampusMapViews();
+  renderStatsBreakdown();
   renderMobileStudentApp();
+  renderStudentParkingTab();
+  renderStudentNotificationsTab();
 
   publishCloudSyncState({
     type: isFloodSimActive ? "flood_on" : "flood_off"
@@ -3187,9 +3228,6 @@ function relocateStudentToCoveredKhuA(mssv) {
   emptySlot.studentName = stu.hoTen;
   emptySlot.licensePlate = stu.bienSo;
   emptySlot.note = "Điều phối tránh ngập từ App Sinh viên";
-
-  kpiStats.free = Math.max(0, kpiStats.free - 1);
-  kpiStats.reserved += 1;
 
   addActivityLog({
     vehicle: stu.loaiXe || "Xe máy",
@@ -3276,7 +3314,7 @@ function populateStudentDropdowns() {
   const quickSelect = document.getElementById("quick-student-select");
   if (quickSelect) {
     quickSelect.innerHTML = students.map(s =>
-      `<option value="${s.mssv}">${s.hoTen} (${s.mssv} - ${s.oDo})</option>`
+      `<option value="${s.mssv}">${s.hoTen} (${s.mssv}${s.oDo ? " - " + s.oDo : " - Chưa gửi"})</option>`
     ).join("");
   }
 
@@ -3361,7 +3399,7 @@ function renderMobileStudentApp() {
   setTxt("student-home-name", stu.hoTen);
   setTxt("student-home-plate", stu.bienSo);
   setTxt("student-home-model", stu.dongXe);
-  setTxt("student-home-slot-badge", `Ô ${stu.oDo || "Chưa có"}`);
+  setTxt("student-home-slot-badge", stu.oDo ? `Ô ${stu.oDo}` : "Chưa có ô");
 
   const homeStatusEl = document.getElementById("student-home-status-badge");
 
@@ -3373,7 +3411,7 @@ function renderMobileStudentApp() {
   setTxt("mobile-card-dob", stu.ngaySinh);
   setTxt("mobile-card-plate", stu.bienSo);
   setTxt("mobile-card-model", stu.dongXe);
-  setTxt("mobile-current-slot-badge", `Ô ${stu.oDo || "Chưa có"}`);
+  setTxt("mobile-current-slot-badge", stu.oDo ? `Ô ${stu.oDo}` : "Chưa có");
 
   const pillEl = document.getElementById("mobile-parking-status-pill");
   const statusTxtEl = document.getElementById("mobile-current-status-text");
@@ -3405,16 +3443,17 @@ function renderMobileStudentApp() {
       statusTxtEl.className = "text-[11px] font-bold text-[#f26f21] truncate";
     }
   } else {
+    const outLabel = stu.trangThaiGui || "Chưa gửi";
     if (pillEl) {
-      pillEl.textContent = "Đã lấy xe";
+      pillEl.textContent = outLabel;
       pillEl.className = "px-3 py-1 rounded-full text-xs font-extrabold bg-slate-100 text-slate-600 shadow-sm";
     }
     if (homeStatusEl) {
-      homeStatusEl.textContent = "Chưa gửi";
+      homeStatusEl.textContent = outLabel;
       homeStatusEl.className = "inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600";
     }
     if (statusTxtEl) {
-      statusTxtEl.textContent = "Chưa gửi trong bãi";
+      statusTxtEl.textContent = "Chưa gửi xe trong bãi";
       statusTxtEl.className = "text-[11px] font-bold text-slate-500 truncate";
     }
   }
@@ -3580,16 +3619,7 @@ function studentBookSelectedSlotOnMap() {
   }
 
   // Giải phóng ô cũ nếu sinh viên đang giữ chỗ/đỗ ở ô khác
-  const wasParked = isStudentParked(stu.trangThaiGui);
-  const wasReserved = stu.trangThaiGui === "Đặt trước";
   freeStudentSlot(stu.mssv, stu.oDo);
-  if (wasParked) {
-    kpiStats.occupied = Math.max(0, kpiStats.occupied - 1);
-    kpiStats.free += 1;
-  } else if (wasReserved) {
-    kpiStats.reserved = Math.max(0, kpiStats.reserved - 1);
-    kpiStats.free += 1;
-  }
 
   // Đặt chỗ ô mới
   slot.status = "reserved";
@@ -3602,9 +3632,6 @@ function studentBookSelectedSlotOnMap() {
   stu.oDo = slot.code;
   stu.trangThaiGui = "Đặt trước";
   saveDatabase();
-
-  kpiStats.free = Math.max(0, kpiStats.free - 1);
-  kpiStats.reserved += 1;
 
   const cleanZoneName = getZoneDisplayNameBySlotCode(slot.code);
   const fullZoneLabel = getFullZoneLabelWithRoofBySlotCode(slot.code);
@@ -4041,28 +4068,102 @@ function openOriginalMapModal() {
 }
 
 // ==========================================================================
-// 15. RENDER KPI CARDS, THỐNG KÊ NHANH, HOẠT ĐỘNG GẦN ĐÂY & CẢNH BÁO
+// 15. RENDER KPI CARDS (100% TÍNH TỪ SƠ ĐỒ THỰC TẾ - SINGLE SOURCE OF TRUTH)
 // ==========================================================================
+function computeRealKPIStats(scope = kpiScopeMode) {
+  const slots = scope === "current"
+    ? (parkingZones[currentZoneId] || [])
+    : Object.values(parkingZones).flat();
+
+  const tongSoO = slots.length;
+  const oTrong = slots.filter(s => s.status === "free" || s.status === "available").length;
+  const dangSuDung = slots.filter(s => s.status === "occupied").length;
+  const daDatTruoc = slots.filter(s => s.status === "reserved").length;
+  const khongKhaDung = slots.filter(s => s.status === "unavailable").length;
+
+  // Nếu count === 0 bắt buộc hiển thị 0% (tuyệt đối không làm tròn lên 1%)
+  const calcPct = (count) => (tongSoO > 0 && count > 0) ? Math.round((count / tongSoO) * 100) : 0;
+
+  return {
+    tongSoO,
+    oTrong,
+    dangSuDung,
+    daDatTruoc,
+    khongKhaDung,
+    pctTrong: calcPct(oTrong),
+    pctDangSuDung: calcPct(dangSuDung),
+    pctDaDatTruoc: calcPct(daDatTruoc),
+    pctKhongKhaDung: calcPct(khongKhaDung),
+    utilizationPct: calcPct(dangSuDung)
+  };
+}
+
+function syncDerivedKPIStatsObject() {
+  const allStats = computeRealKPIStats("all");
+  kpiStats.free = allStats.oTrong;
+  kpiStats.occupied = allStats.dangSuDung;
+  kpiStats.reserved = allStats.daDatTruoc;
+  kpiStats.unavailable = allStats.khongKhaDung;
+  return allStats;
+}
+
+function setKPIScopeMode(mode) {
+  kpiScopeMode = mode === "current" ? "current" : "all";
+  renderKPICards();
+}
+
 function renderKPICards() {
-  const total = kpiStats.free + kpiStats.occupied + kpiStats.reserved + kpiStats.unavailable;
-  const pct = (val) => Math.max(1, Math.round((val / total) * 100));
+  const allStats = syncDerivedKPIStatsObject();
+  const currStats = computeRealKPIStats("current");
+  const activeStats = kpiScopeMode === "current" ? currStats : allStats;
+  const totalZonesCount = Object.keys(parkingZones).length || PARKING_ZONES_META.length;
+  const currZoneMeta = PARKING_ZONES_META.find(z => z.id === currentZoneId);
+  const currZoneShort = currZoneMeta
+    ? currZoneMeta.name.replace(/^\d+\.\s*/, "").replace(/\s*\(.*?\)\s*/g, "").trim()
+    : "Bãi đang xem";
 
   const setEl = (id, text) => {
     const el = document.getElementById(id);
     if (el) el.textContent = text;
   };
 
-  setEl("kpi-free-count", kpiStats.free);
-  setEl("kpi-free-pct", `(~ ${pct(kpiStats.free)}%)`);
-  setEl("kpi-occupied-count", kpiStats.occupied);
-  setEl("kpi-occupied-pct", `(~ ${pct(kpiStats.occupied)}%)`);
-  setEl("kpi-reserved-count", kpiStats.reserved);
-  setEl("kpi-reserved-pct", `(~ ${pct(kpiStats.reserved)}%)`);
-  setEl("kpi-unavailable-count", kpiStats.unavailable);
-  setEl("kpi-unavailable-pct", `(~ ${pct(kpiStats.unavailable)}%)`);
+  // 4 thẻ KPI tổng quan tính trực tiếp từ danh sách ô đỗ thực tế
+  setEl("kpi-free-count", activeStats.oTrong);
+  setEl("kpi-free-pct", `(${activeStats.pctTrong}%)`);
+  setEl("kpi-occupied-count", activeStats.dangSuDung);
+  setEl("kpi-occupied-pct", `(${activeStats.pctDangSuDung}%)`);
+  setEl("kpi-reserved-count", activeStats.daDatTruoc);
+  setEl("kpi-reserved-pct", `(${activeStats.pctDaDatTruoc}%)`);
+  setEl("kpi-unavailable-count", activeStats.khongKhaDung);
+  setEl("kpi-unavailable-pct", `(${activeStats.pctKhongKhaDung}%)`);
 
-  setEl("stat-total-in", kpiStats.totalIn.toLocaleString("vi-VN"));
-  setEl("stat-total-out", kpiStats.totalOut.toLocaleString("vi-VN"));
+  // Đồng bộ khung "Thống kê nhanh"
+  setEl("stat-total-in", (Number(kpiStats.totalIn) || 0).toLocaleString("vi-VN"));
+  setEl("stat-total-out", (Number(kpiStats.totalOut) || 0).toLocaleString("vi-VN"));
+  setEl("stat-utilization-rate", `${activeStats.utilizationPct}%`);
+
+  // Cập nhật thanh hiển thị Phạm vi thống kê & 2 nút chuyển đổi nhanh phía trên 4 thẻ KPI
+  const scopeSummaryEl = document.getElementById("kpi-scope-summary-text");
+  const btnAll = document.getElementById("btn-kpi-scope-all");
+  const btnCurrent = document.getElementById("btn-kpi-scope-current");
+
+  if (btnAll) {
+    btnAll.textContent = `Toàn trường (${totalZonesCount} bãi - ${allStats.tongSoO} ô)`;
+    btnAll.className = kpiScopeMode === "all"
+      ? "px-2.5 py-1 rounded-lg text-[11px] font-extrabold transition bg-[#005f69] text-white shadow-sm"
+      : "px-2.5 py-1 rounded-lg text-[11px] font-bold transition text-slate-600 hover:text-slate-900";
+  }
+  if (btnCurrent) {
+    btnCurrent.textContent = `Chỉ bãi đang xem (${currStats.tongSoO} ô)`;
+    btnCurrent.className = kpiScopeMode === "current"
+      ? "px-2.5 py-1 rounded-lg text-[11px] font-extrabold transition bg-[#f26f21] text-white shadow-sm"
+      : "px-2.5 py-1 rounded-lg text-[11px] font-bold transition text-slate-600 hover:text-slate-900";
+  }
+  if (scopeSummaryEl) {
+    scopeSummaryEl.textContent = kpiScopeMode === "current"
+      ? `${currZoneShort} (${currStats.tongSoO} ô)`
+      : `Toàn trường (${totalZonesCount} bãi - ${allStats.tongSoO} ô)`;
+  }
 }
 
 function addActivityLog(entry) {
@@ -4194,7 +4295,7 @@ function renderStudentDatabaseTable() {
       ? `<span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-100 text-blue-700">Đang sử dụng</span>`
       : stu.trangThaiGui === "Đặt trước"
       ? `<span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-orange-100 text-[#f26f21]">Đặt trước</span>`
-      : `<span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-600">Đã lấy xe</span>`;
+      : `<span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-600">${stu.trangThaiGui || "Chưa gửi"}</span>`;
 
     return `
       <tr class="hover:bg-slate-50 transition">
@@ -4307,6 +4408,9 @@ function saveStudentForm() {
   populateStudentDropdowns();
   renderStudentDatabaseTable();
   render20SlotGrid();
+  renderKPICards();
+  renderCampusMapViews();
+  renderStatsBreakdown();
   renderMobileStudentApp();
   closeStudentFormModal();
   publishCloudSyncState({ type: "student_crud" });
@@ -4322,6 +4426,9 @@ function deleteStudentByIndex(idx) {
   populateStudentDropdowns();
   renderStudentDatabaseTable();
   render20SlotGrid();
+  renderKPICards();
+  renderCampusMapViews();
+  renderStatsBreakdown();
   renderMobileStudentApp();
   publishCloudSyncState({ type: "student_crud" });
 }
@@ -4373,6 +4480,9 @@ function importStudentsCSV(event) {
       populateStudentDropdowns();
       renderStudentDatabaseTable();
       render20SlotGrid();
+      renderKPICards();
+      renderCampusMapViews();
+      renderStatsBreakdown();
       renderMobileStudentApp();
       publishCloudSyncState({ type: "student_crud" });
       alert(`Đã nhập thành công ${imported.length} sinh viên từ file CSV!`);
@@ -4510,13 +4620,14 @@ function renderStatsBreakdown() {
   if (!container) return;
   container.innerHTML = PARKING_ZONES_META.map(z => {
     const slots = parkingZones[z.id] || [];
-    const used = slots.filter(s => s.status === "occupied" || s.status === "reserved").length;
-    const pct = Math.round((used / 20) * 100);
+    const total = slots.length || 20;
+    const occupied = slots.filter(s => s.status === "occupied").length;
+    const pct = (total > 0 && occupied > 0) ? Math.round((occupied / total) * 100) : 0;
     return `
       <div class="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
         <div class="flex justify-between items-center text-xs font-bold">
           <span class="text-slate-800">${z.name}</span>
-          <span class="text-[#005f69]">${used}/20 ô (${pct}%)</span>
+          <span class="text-[#005f69]">${occupied}/${total} ô (${pct}%)</span>
         </div>
         <div class="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
           <div class="h-full bg-[#005f69] rounded-full" style="width: ${pct}%"></div>
