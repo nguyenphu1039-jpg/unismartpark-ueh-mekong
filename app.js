@@ -178,6 +178,7 @@ let lastSpokenEventId = "";
 // Activity Logs & Alerts
 let activityLogs = [];
 let systemAlerts = [];
+let currentHistoryStatusFilter = "all";
 
 // ==========================================================================
 // 4. KHỞI TẠO HỆ THỐNG (INITIALIZATION - HỖ TRỢ ĐỘC LẬP 2 LINK: / VÀ /admin)
@@ -3336,6 +3337,8 @@ function populateStudentDropdowns() {
       `<option value="${s.mssv}" ${s.mssv === currentMobileStudentMssv ? "selected" : ""}>${s.hoTen}</option>`
     ).join("");
   }
+
+  updateStudentCountBadges();
 }
 
 function onSwitchMobileStudent(mssv) {
@@ -4174,9 +4177,118 @@ function addActivityLog(entry) {
   if (activityLogs.length > 50) activityLogs.pop();
 }
 
+function normalizeSearchText(str) {
+  return String(str || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
+    .toLowerCase()
+    .trim();
+}
+
+function getVehicleModelForLog(log) {
+  if (log.model) return log.model;
+  if (log.mssv && log.mssv !== "—" && log.mssv !== "ADMIN" && log.mssv !== "AUTO-AI") {
+    const matched = students.find(s => s.mssv === log.mssv);
+    if (matched) return `${matched.dongXe} (${matched.loaiXe || "Xe máy"})`;
+  }
+  return log.vehicle || "Xe máy";
+}
+
+function getSlotAndZoneDisplayForLog(slotText) {
+  const raw = String(slotText || "—").trim();
+  if (/^(KB|SD|MM|TT|HT|D|A)\d{2}$/i.test(raw)) {
+    return `${raw.toUpperCase()} • ${getZoneDisplayNameBySlotCode(raw)}`;
+  }
+  return raw;
+}
+
+function setHistoryStatusFilter(filterKey) {
+  currentHistoryStatusFilter = ["all", "in", "out", "reserved", "alert"].includes(filterKey) ? filterKey : "all";
+  const filterStyles = {
+    all: { active: "bg-[#005f69] text-white shadow-sm", idle: "bg-white hover:bg-slate-100 text-slate-700 border border-slate-200" },
+    in: { active: "bg-emerald-600 text-white shadow-sm", idle: "bg-white hover:bg-emerald-50 text-slate-700 border border-slate-200" },
+    out: { active: "bg-blue-600 text-white shadow-sm", idle: "bg-white hover:bg-blue-50 text-slate-700 border border-slate-200" },
+    reserved: { active: "bg-[#f26f21] text-white shadow-sm", idle: "bg-white hover:bg-orange-50 text-slate-700 border border-slate-200" },
+    alert: { active: "bg-red-600 text-white shadow-sm", idle: "bg-white hover:bg-red-50 text-slate-700 border border-slate-200" }
+  };
+
+  Object.keys(filterStyles).forEach(key => {
+    const btn = document.getElementById(`history-filter-${key}`);
+    if (!btn) return;
+    const isActive = key === currentHistoryStatusFilter;
+    btn.className = `px-3 py-1.5 rounded-lg text-xs ${isActive ? "font-extrabold " + filterStyles[key].active : "font-bold " + filterStyles[key].idle} transition`;
+  });
+
+  renderRecentActivityTable();
+}
+
+function getFilteredActivityLogs() {
+  const searchEl = document.getElementById("history-search-input");
+  const q = searchEl ? normalizeSearchText(searchEl.value) : "";
+
+  return activityLogs.filter(log => {
+    if (currentHistoryStatusFilter !== "all" && log.badgeType !== currentHistoryStatusFilter) {
+      return false;
+    }
+    if (!q) return true;
+    const haystack = normalizeSearchText([
+      log.time,
+      log.studentName,
+      log.mssv,
+      log.plate,
+      log.vehicle,
+      getVehicleModelForLog(log),
+      log.slot,
+      getSlotAndZoneDisplayForLog(log.slot),
+      log.status,
+      log.detail
+    ].join(" "));
+    return haystack.includes(q);
+  });
+}
+
+function exportActivityHistoryCSV() {
+  const rowsData = getFilteredActivityLogs();
+  const headers = ["Thời gian", "Họ tên", "MSSV", "Biển số xe", "Dòng xe", "Ô đỗ / Khu vực", "Trạng thái", "Chi tiết"];
+  const rows = rowsData.map(log => [
+    log.time || "",
+    log.studentName || "—",
+    log.mssv || "—",
+    log.plate || "—",
+    getVehicleModelForLog(log),
+    getSlotAndZoneDisplayForLog(log.slot),
+    log.status || "",
+    log.detail || ""
+  ].map(val => `"${String(val).replace(/"/g, '""')}"`).join(","));
+
+  const csvContent = "\uFEFF" + [headers.join(","), ...rows].join("\n");
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "lich_su_ra_vao_ueh_mekong.csv";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function clearActivityHistory() {
+  if (activityLogs.length === 0) return;
+  if (!confirm("Bạn có chắc muốn xóa toàn bộ nhật ký Lịch sử ra vào?")) return;
+  activityLogs = [];
+  kpiStats.totalIn = 0;
+  kpiStats.totalOut = 0;
+  renderRecentActivityTable();
+  renderKPICards();
+  renderStudentNotificationsTab();
+  publishCloudSyncState({ type: "clear_history" });
+}
+
 function renderRecentActivityTable() {
   const tbody = document.getElementById("recent-activity-tbody");
   const fullTbody = document.getElementById("full-history-tbody");
+  const countSummaryEl = document.getElementById("history-count-summary");
 
   const getBadgeHTML = (log) => {
     if (log.badgeType === "in") {
@@ -4192,37 +4304,52 @@ function renderRecentActivityTable() {
   };
 
   if (tbody) {
-    tbody.innerHTML = activityLogs.slice(0, 5).map(log => `
-      <tr class="hover:bg-slate-50 transition">
-        <td class="py-2 px-2 font-bold text-slate-700 tabular-nums">${log.time}</td>
-        <td class="py-2 px-2 text-[#005f69]">
-          <span class="inline-flex items-center gap-1 font-semibold">
-            <i data-lucide="${log.vehicle === 'Ô tô' ? 'car' : 'bike'}" class="w-4 h-4"></i>
-          </span>
-        </td>
-        <td class="py-2 px-2">
-          <div class="font-mono font-bold text-slate-800">${log.plate}</div>
-          <div class="text-[10px] text-slate-500 truncate max-w-[140px]">${log.studentName || ""}</div>
-        </td>
-        <td class="py-2 px-2 font-extrabold text-slate-800">${log.slot}</td>
-        <td class="py-2 px-2 text-right">${getBadgeHTML(log)}</td>
-      </tr>
-    `).join("");
+    if (activityLogs.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="5" class="py-6 text-center text-xs font-semibold text-slate-400">Chưa có hoạt động ra vào nào được ghi nhận.</td></tr>`;
+    } else {
+      tbody.innerHTML = activityLogs.slice(0, 5).map(log => `
+        <tr class="hover:bg-slate-50 transition">
+          <td class="py-2 px-2 font-bold text-slate-700 tabular-nums">${log.time}</td>
+          <td class="py-2 px-2 text-[#005f69]">
+            <span class="inline-flex items-center gap-1 font-semibold">
+              <i data-lucide="${log.vehicle === 'Ô tô' ? 'car' : 'bike'}" class="w-4 h-4"></i>
+            </span>
+          </td>
+          <td class="py-2 px-2">
+            <div class="font-mono font-bold text-slate-800">${log.plate}</div>
+            <div class="text-[10px] text-slate-500 truncate max-w-[140px]">${log.studentName || ""}</div>
+          </td>
+          <td class="py-2 px-2 font-extrabold text-slate-800">${log.slot}</td>
+          <td class="py-2 px-2 text-right">${getBadgeHTML(log)}</td>
+        </tr>
+      `).join("");
+    }
+  }
+
+  const filteredLogs = getFilteredActivityLogs();
+  if (countSummaryEl) {
+    countSummaryEl.textContent = `Đang hiển thị ${filteredLogs.length} / ${activityLogs.length} bản ghi`;
   }
 
   if (fullTbody) {
-    fullTbody.innerHTML = activityLogs.map(log => `
-      <tr class="hover:bg-slate-50">
-        <td class="py-2.5 px-3 font-bold tabular-nums">${log.time}</td>
-        <td class="py-2.5 px-3 font-bold text-slate-800">${log.studentName || "—"}</td>
-        <td class="py-2.5 px-3 font-mono text-slate-600">${log.mssv || "—"}</td>
-        <td class="py-2.5 px-3 font-mono font-bold text-[#005f69]">${log.plate}</td>
-        <td class="py-2.5 px-3">${log.vehicle}</td>
-        <td class="py-2.5 px-3 font-extrabold text-[#f26f21]">${log.slot}</td>
-        <td class="py-2.5 px-3 text-slate-600">${log.detail || ""}</td>
-        <td class="py-2.5 px-3 text-right">${getBadgeHTML(log)}</td>
-      </tr>
-    `).join("");
+    if (filteredLogs.length === 0) {
+      fullTbody.innerHTML = `<tr><td colspan="7" class="py-8 text-center text-xs font-semibold text-slate-400">Không tìm thấy lịch sử ra vào phù hợp.</td></tr>`;
+    } else {
+      fullTbody.innerHTML = filteredLogs.map(log => `
+        <tr class="hover:bg-slate-50 transition">
+          <td class="py-2.5 px-3 font-bold text-slate-700 tabular-nums whitespace-nowrap">${log.time}</td>
+          <td class="py-2.5 px-3">
+            <div class="font-bold text-slate-900">${log.studentName || "—"}</div>
+            ${log.detail ? `<div class="text-[11px] text-slate-500">${log.detail}</div>` : ""}
+          </td>
+          <td class="py-2.5 px-3 font-mono text-slate-700 whitespace-nowrap">${log.mssv || "—"}</td>
+          <td class="py-2.5 px-3 font-mono font-bold text-[#005f69] whitespace-nowrap">${log.plate || "—"}</td>
+          <td class="py-2.5 px-3 font-semibold text-slate-700 whitespace-nowrap">${getVehicleModelForLog(log)}</td>
+          <td class="py-2.5 px-3 font-extrabold text-[#f26f21]">${getSlotAndZoneDisplayForLog(log.slot)}</td>
+          <td class="py-2.5 px-3 text-right whitespace-nowrap">${getBadgeHTML(log)}</td>
+        </tr>
+      `).join("");
+    }
   }
 
   if (window.lucide) lucide.createIcons();
@@ -4284,13 +4411,56 @@ function clearNotifications() {
 }
 
 // ==========================================================================
-// 16. QUẢN LÝ BẢNG 10 SINH VIÊN NHÓM + THÊM/SỬA/XÓA + CSV + MÃ VẠCH JSBARCODE
+// 16. QUẢN LÝ CƠ SỞ DỮ LIỆU SINH VIÊN + THÊM/SỬA/XÓA + TÌM KIẾM + CSV + MÃ VẠCH
 // ==========================================================================
+function updateStudentCountBadges(filteredCount = null) {
+  const total = students.length;
+  const sidebarBadge = document.getElementById("sidebar-student-count-badge");
+  const headerLabel = document.getElementById("header-student-count-label");
+  const summaryEl = document.getElementById("student-db-count-summary");
+
+  if (sidebarBadge) sidebarBadge.textContent = String(total);
+  if (headerLabel) headerLabel.textContent = `${total} SV`;
+  if (summaryEl) {
+    if (filteredCount !== null && filteredCount !== total) {
+      summaryEl.textContent = `Hiển thị ${filteredCount} / ${total} sinh viên`;
+    } else {
+      summaryEl.textContent = `Tổng: ${total} sinh viên`;
+    }
+  }
+}
+
 function renderStudentDatabaseTable() {
   const tbody = document.getElementById("student-db-tbody");
+  const searchInput = document.getElementById("student-search-input");
+  const q = searchInput ? normalizeSearchText(searchInput.value) : "";
+
+  const matchedItems = students
+    .map((stu, idx) => ({ stu, idx }))
+    .filter(({ stu }) => {
+      if (!q) return true;
+      const haystack = normalizeSearchText([
+        stu.mssv,
+        stu.hoTen,
+        stu.ngaySinh,
+        stu.bienSo,
+        stu.dongXe,
+        stu.loaiXe,
+        stu.oDo,
+        stu.trangThaiGui
+      ].join(" "));
+      return haystack.includes(q);
+    });
+
+  updateStudentCountBadges(matchedItems.length);
   if (!tbody) return;
 
-  tbody.innerHTML = students.map((stu, idx) => {
+  if (matchedItems.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="10" class="py-8 text-center text-xs font-semibold text-slate-400">Không tìm thấy sinh viên nào khớp với từ khóa tìm kiếm.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = matchedItems.map(({ stu, idx }, rowNum) => {
     const statusBadge = isStudentParked(stu.trangThaiGui)
       ? `<span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-100 text-blue-700">Đang sử dụng</span>`
       : stu.trangThaiGui === "Đặt trước"
@@ -4299,7 +4469,7 @@ function renderStudentDatabaseTable() {
 
     return `
       <tr class="hover:bg-slate-50 transition">
-        <td class="py-2.5 px-3 font-bold text-slate-500">${idx + 1}</td>
+        <td class="py-2.5 px-3 font-bold text-slate-500">${rowNum + 1}</td>
         <td class="py-2.5 px-3 font-mono font-bold text-slate-900">${stu.mssv}</td>
         <td class="py-2.5 px-3 font-extrabold text-slate-900">${stu.hoTen}</td>
         <td class="py-2.5 px-3 text-slate-600">${stu.ngaySinh}</td>
@@ -4312,7 +4482,7 @@ function renderStudentDatabaseTable() {
             <i data-lucide="barcode" class="w-3.5 h-3.5"></i> Mã vạch
           </button>
         </td>
-        <td class="py-2.5 px-3 text-right space-x-1">
+        <td class="py-2.5 px-3 text-right space-x-1 whitespace-nowrap">
           <button onclick="scanStudentByIndex(${idx})" class="bg-[#005f69] hover:bg-[#0d4a52] text-white font-bold text-[11px] px-2.5 py-1 rounded-lg" title="Quét Check-in/Check-out nhanh">
             Quét
           </button>
@@ -4332,7 +4502,7 @@ function renderStudentDatabaseTable() {
 
 function openStudentDbModal() {
   switchAppMode("admin");
-  switchSidebarTab("history");
+  switchSidebarTab("students");
 }
 
 function scanStudentByIndex(idx) {
@@ -4593,7 +4763,7 @@ function renderSafeJsBarcode(selector, value, options) {
 // ==========================================================================
 function switchSidebarTab(tabName) {
   switchAppMode("admin");
-  const tabs = ["overview", "campus-map", "parking-lots", "history", "alerts", "stats", "settings"];
+  const tabs = ["overview", "campus-map", "parking-lots", "history", "students", "alerts", "stats", "settings"];
   tabs.forEach(t => {
     const sec = document.getElementById(`tab-${t}`);
     const btn = document.getElementById(`nav-btn-${t}`);
@@ -4603,14 +4773,18 @@ function switchSidebarTab(tabName) {
     }
     if (btn) {
       if (t === tabName) {
-        btn.className = "sidebar-nav-btn w-full px-3.5 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-between transition bg-[#005f69] text-white shadow-sm shrink-0";
+        btn.className = "sidebar-nav-btn w-full px-3.5 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-between gap-2 transition bg-[#005f69] text-white shadow-sm shrink-0";
       } else {
-        btn.className = "sidebar-nav-btn w-full px-3.5 py-2.5 rounded-xl font-semibold text-xs sm:text-sm flex items-center justify-between transition text-teal-100/80 hover:bg-white/10 hover:text-white shrink-0";
+        btn.className = "sidebar-nav-btn w-full px-3.5 py-2.5 rounded-xl font-semibold text-xs sm:text-sm flex items-center justify-between gap-2 transition text-teal-100/80 hover:bg-white/10 hover:text-white shrink-0";
       }
     }
   });
 
-  if (tabName === "stats") {
+  if (tabName === "history") {
+    renderRecentActivityTable();
+  } else if (tabName === "students") {
+    renderStudentDatabaseTable();
+  } else if (tabName === "stats") {
     renderStatsBreakdown();
   }
 }
