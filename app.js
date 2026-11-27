@@ -4761,32 +4761,69 @@ function renderSafeJsBarcode(selector, value, options) {
 // ==========================================================================
 // 18. ĐIỀU HƯỚNG SIDEBAR BÊN PHẢI & ĐỒNG HỒ THỜI GIAN THỰC
 // ==========================================================================
+let activeAdminTab = "overview";
+
 function switchSidebarTab(tabName) {
   switchAppMode("admin");
-  const tabs = ["overview", "campus-map", "parking-lots", "history", "students", "alerts", "stats", "settings"];
-  tabs.forEach(t => {
+  const aliasMap = {
+    campus: "campus-map",
+    parking: "parking-lots",
+    "student-db": "students"
+  };
+  const normalizedTab = aliasMap[tabName] || tabName || "overview";
+  activeAdminTab = normalizedTab;
+
+  const knownTabs = ["overview", "campus-map", "parking-lots", "history", "students", "alerts", "stats", "settings"];
+  let domTabIds = [];
+  if (typeof document !== "undefined" && typeof document.querySelectorAll === "function") {
+    domTabIds = Array.from(document.querySelectorAll('section[id^="tab-"]')).map(el => el.id.replace(/^tab-/, ""));
+  }
+  const allTabs = Array.from(new Set([...knownTabs, ...domTabIds]));
+
+  allTabs.forEach(t => {
     const sec = document.getElementById(`tab-${t}`);
     const btn = document.getElementById(`nav-btn-${t}`);
+    const isActive = t === normalizedTab;
+
     if (sec) {
-      if (t === tabName) sec.classList.remove("hidden");
-      else sec.classList.add("hidden");
+      if (isActive) {
+        sec.classList.remove("hidden");
+        if (sec.style) sec.style.display = "";
+      } else {
+        sec.classList.add("hidden");
+      }
     }
     if (btn) {
-      if (t === tabName) {
+      if (isActive) {
         btn.className = "sidebar-nav-btn w-full px-3.5 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-between gap-2 transition bg-[#005f69] text-white shadow-sm shrink-0";
+        if (btn.setAttribute) btn.setAttribute("aria-current", "page");
       } else {
         btn.className = "sidebar-nav-btn w-full px-3.5 py-2.5 rounded-xl font-semibold text-xs sm:text-sm flex items-center justify-between gap-2 transition text-teal-100/80 hover:bg-white/10 hover:text-white shrink-0";
+        if (btn.removeAttribute) btn.removeAttribute("aria-current");
       }
     }
   });
 
-  if (tabName === "history") {
+  if (normalizedTab === "history") {
     renderRecentActivityTable();
-  } else if (tabName === "students") {
+  } else if (normalizedTab === "students") {
     renderStudentDatabaseTable();
-  } else if (tabName === "stats") {
+  } else if (normalizedTab === "stats") {
     renderStatsBreakdown();
+  } else if (normalizedTab === "campus-map" || normalizedTab === "parking-lots") {
+    renderCampusMapViews();
+  } else if (normalizedTab === "alerts") {
+    renderDashboardAlerts();
+  } else if (normalizedTab === "overview") {
+    render20SlotGrid();
+    renderKPICards();
   }
+
+  if (window.lucide) lucide.createIcons();
+}
+
+function switchTab(tabName) {
+  switchSidebarTab(tabName);
 }
 
 function renderStatsBreakdown() {
