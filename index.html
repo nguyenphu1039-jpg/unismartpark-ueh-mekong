@@ -2,14 +2,15 @@
 <html lang="vi">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Hệ thống quản trị bãi giữ xe thông minh - UEH Mekong (UniSmartPark)</title>
-  <meta name="description" content="Hệ thống quản trị bãi giữ xe thông minh UniSmartPark - Trường Đại học Kinh tế TP.HCM - Phân hiệu Vĩnh Long (UEH Mekong)" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>UEH Student Parking | UniSmartPark - UEH Mekong</title>
+  <meta name="description" content="Ứng dụng Bãi giữ xe thông minh dành cho Sinh viên UEH Mekong (UniSmartPark)" />
+  <meta name="theme-color" content="#005f69" />
 
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -40,1593 +41,427 @@
   <!-- JsBarcode (Generate CODE_128 Student ID Barcodes) -->
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
 
-  <!-- MQTT over WebSockets (Real-Time Cloud Sync between Phone & Laptop) -->
+  <!-- MQTT over WebSockets (Real-Time Cloud Sync with Admin Portal) -->
   <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
 
-  <!-- Custom Styles -->
+  <!-- Shared Custom Styles -->
   <link rel="stylesheet" href="styles.css" />
 </head>
-<body class="bg-[#f4f7f9] text-slate-800 min-h-screen flex flex-col select-none md:select-auto">
+<body data-app-role="student" class="bg-slate-100 md:bg-gradient-to-br md:from-[#0d3b42] md:via-[#005f69] md:to-slate-900 min-h-screen flex justify-center select-none">
 
   <!-- =====================================================================
-       FLOATING POP-UP NOTIFICATION (PUSH ALERT TO STUDENT APP & ADMIN)
+       MOBILE-FIRST STUDENT APP CONTAINER (FULL-SCREEN ON PHONE, PHONE FRAME ON DESKTOP)
        ===================================================================== -->
-  <div id="push-notification-banner" class="hidden fixed top-16 left-1/2 -translate-x-1/2 z-50 w-[95%] max-w-2xl bg-gradient-to-r from-red-600 via-red-600 to-orange-600 text-white rounded-2xl shadow-2xl border-2 border-red-300 p-4 animate-slide-up">
-    <div class="flex items-start gap-3.5">
-      <div class="bg-white/20 p-2.5 rounded-xl shrink-0 animate-bounce">
-        <i data-lucide="cloud-lightning" class="w-7 h-7 text-yellow-200"></i>
-      </div>
-      <div class="flex-1 min-w-0">
-        <div class="flex items-center justify-between gap-2">
-          <span class="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider bg-black/25 px-2.5 py-0.5 rounded-full text-yellow-200">
-            <span class="w-2 h-2 rounded-full bg-yellow-300 animate-ping"></span>
-            Thông báo đẩy khẩn cấp • App Sinh Viên UEH
-          </span>
-          <button onclick="dismissPushBanner()" class="text-white/80 hover:text-white p-1">
-            <i data-lucide="x" class="w-4 h-4"></i>
-          </button>
-        </div>
-        <h4 id="push-banner-title" class="font-extrabold text-sm md:text-base mt-1">
-          Cảnh báo mưa lớn & nguy cơ ngập tại bãi xe ngoài trời dọc bờ sông!
-        </h4>
-        <p id="push-banner-desc" class="text-xs md:text-sm text-red-50 mt-0.5 leading-relaxed">
-          Hệ thống đề xuất di chuyển phương tiện sang <strong>Khu A (Nhà xe có mái che)</strong> để đảm bảo an toàn tài sản.
-        </p>
-        <div class="flex flex-wrap items-center gap-2 mt-3">
-          <button onclick="acceptFloodRelocationFromBanner()" class="bg-white text-red-700 hover:bg-yellow-50 font-bold text-xs md:text-sm px-3.5 py-2 rounded-xl shadow-md flex items-center gap-1.5 transition active:scale-95">
-            <i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-600"></i>
-            Đồng ý chuyển sang ô trống Khu A
-          </button>
-          <button onclick="switchAppMode('student')" class="bg-black/25 hover:bg-black/40 text-white font-semibold text-xs px-3 py-2 rounded-xl flex items-center gap-1.5 transition">
-            <i data-lucide="smartphone" class="w-4 h-4"></i>
-            Mở trên App Sinh viên
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- =====================================================================
-       MAIN APPLICATION SHELL (LEFT/CENTER CONTENT + RIGHTMOST SIDEBAR)
-       ===================================================================== -->
-  <div class="flex-1 flex flex-col lg:flex-row min-h-screen w-full overflow-x-hidden">
-
-    <!-- LEFT & CENTER AREA (Header + Main Dynamic Views) -->
-    <div class="flex-1 flex flex-col min-w-0">
-
-      <!-- =================================================================
-           TOP HEADER BAR
-           ================================================================= -->
-      <header class="bg-white border-b border-slate-200/90 px-3 sm:px-5 py-2.5 flex flex-wrap items-center justify-between gap-3 sticky top-0 z-30 shadow-sm">
-        <!-- Left: Brand Logo & Title -->
-        <div class="flex items-center gap-3 sm:gap-4">
-          <div class="flex flex-col items-center justify-center leading-none cursor-pointer select-none" onclick="switchSidebarTab('overview')">
-            <span class="text-2xl sm:text-[28px] font-black tracking-tight text-[#005f69]">UEH</span>
-            <span class="text-[11px] sm:text-xs font-extrabold tracking-widest text-[#f26f21] -mt-0.5">MEKONG</span>
-          </div>
-          <div class="h-9 w-[1.5px] bg-slate-200 hidden sm:block"></div>
-          <div>
-            <div class="flex items-center gap-2">
-              <h1 class="text-sm sm:text-lg font-extrabold text-slate-800 tracking-tight leading-snug">
-                Hệ thống quản trị bãi giữ xe thông minh
-              </h1>
-              <span class="hidden xl:inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-[#005f69]/10 text-[#005f69]">
-                UniSmartPark
-              </span>
-            </div>
-            <p class="text-[11px] sm:text-xs text-slate-500 font-medium">
-              Trường Đại học Kinh tế TP.HCM – Cơ sở Mekong
-            </p>
-          </div>
-        </div>
-
-        <!-- Right: Cloud Sync Badge, Reset Button, Mode Switcher, Weather Widget, Real-time Clock, Notification Bell -->
-        <div class="flex items-center flex-wrap gap-2 sm:gap-2.5 ml-auto">
-
-          <!-- Live Cloud Sync Status Badge (Phone <-> Laptop) -->
-          <div id="cloud-sync-badge" class="flex items-center gap-1.5 bg-amber-50 border border-amber-200 text-amber-700 px-2.5 py-1.5 rounded-xl text-[11px] font-bold shadow-sm transition-all" title="Trạng thái đồng bộ thời gian thực qua Cloud MQTT (Điện thoại ↔ Laptop)">
-            <span id="cloud-sync-dot" class="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span>
-            <span id="cloud-sync-text">🟡 Đang kết nối Cloud...</span>
-          </div>
-
-          <!-- Admin Speaker Unlock Status Button -->
-          <button id="admin-speaker-status-btn" onclick="manualUnlockAdminSpeaker()" class="flex items-center gap-1.5 bg-orange-50 hover:bg-orange-100 border border-orange-300 text-[#f26f21] px-2.5 py-1.5 rounded-xl text-[11px] font-extrabold shadow-sm transition-all active:scale-95" title="Nhấn vào đây hoặc bất kỳ đâu trên trang để mở khóa Loa Admin tự động đọc thông báo khi Điện thoại quét mã">
-            <span id="admin-speaker-status-text">🔇 Bấm bật Loa Admin</span>
-          </button>
-
-          <!-- Cloud Reset Button -->
-          <button onclick="resetDefaultDatabaseAndSyncCloud()" class="flex items-center gap-1 bg-slate-100 hover:bg-red-50 text-slate-700 hover:text-red-600 border border-slate-200 hover:border-red-200 px-2.5 py-1.5 rounded-xl text-[11px] font-bold transition active:scale-95" title="Đẩy lại trạng thái gốc của 10 SV & 7 bãi xe lên Cloud để cả Điện thoại và Laptop cùng reset đồng bộ">
-            <span>↻ Reset dữ liệu mẫu</span>
-          </button>
-
-          <!-- Mode Switcher: [🖥️ Màn hình Admin] vs [📱 App Sinh viên] -->
-          <div class="bg-slate-100 p-1 rounded-xl flex items-center border border-slate-200/80 shadow-inner">
-            <button id="btn-mode-admin" onclick="switchAppMode('admin')" class="px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all bg-[#005f69] text-white shadow-sm">
-              <i data-lucide="monitor" class="w-3.5 h-3.5"></i>
-              <span>🖥️ Màn hình Admin</span>
-            </button>
-            <button id="btn-mode-student" onclick="switchAppMode('student')" class="px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all text-slate-600 hover:text-slate-900">
-              <i data-lucide="smartphone" class="w-3.5 h-3.5"></i>
-              <span>📱 App Sinh viên</span>
-              <span id="student-app-badge" class="hidden w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
-            </button>
-          </div>
-
-          <!-- Quick Database & Barcode Button -->
-          <button onclick="openStudentDbModal()" class="hidden md:flex items-center gap-1.5 bg-[#fff3eb] hover:bg-orange-100 text-[#f26f21] border border-orange-200 px-3 py-1.5 rounded-xl text-xs font-bold transition" title="Danh sách 10 Sinh viên & Mã vạch JsBarcode">
-            <i data-lucide="barcode" class="w-4 h-4"></i>
-            <span>10 SV & Mã vạch</span>
-          </button>
-
-          <!-- Weather Widget -->
-          <div id="header-weather-widget" onclick="toggleFloodSimulation()" class="cursor-pointer bg-[#eef6ff] hover:bg-blue-100/80 border border-blue-200/70 rounded-xl px-3 py-1.5 flex items-center gap-2.5 transition" title="Nhấn để bật/tắt giả lập mưa lớn & ngập nước">
-            <div id="weather-icon-box" class="text-blue-500">
-              <i data-lucide="cloud-rain" class="w-5 h-5"></i>
-            </div>
-            <div class="leading-tight">
-              <div id="weather-temp-text" class="text-xs sm:text-sm font-extrabold text-slate-800">28°C</div>
-              <div id="weather-rain-text" class="text-[10px] sm:text-[11px] font-medium text-slate-500">Khả năng mưa: 80%</div>
-            </div>
-          </div>
-
-          <!-- Real-Time Clock Widget -->
-          <div class="bg-[#f1f5f9] border border-slate-200/80 rounded-xl px-3 py-1.5 hidden sm:flex items-center gap-2.5">
-            <div class="text-[#005f69]">
-              <i data-lucide="clock" class="w-5 h-5"></i>
-            </div>
-            <div class="leading-tight">
-              <div id="live-clock-time" class="text-xs sm:text-sm font-extrabold text-slate-800 tabular-nums">09:24:00</div>
-              <div id="live-clock-date" class="text-[10px] sm:text-[11px] font-medium text-slate-500">Thứ Ba, 17/11/2026</div>
-            </div>
-          </div>
-
-          <!-- Notification Bell -->
-          <div class="relative">
-            <button onclick="toggleNotificationPopover()" class="relative p-2 rounded-xl bg-slate-100 hover:bg-slate-200/80 text-slate-700 border border-slate-200/80 transition">
-              <i data-lucide="bell" class="w-5 h-5"></i>
-              <span id="notif-badge-count" class="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-extrabold w-4 h-4 rounded-full flex items-center justify-center shadow">3</span>
-            </button>
-            <!-- Notification Dropdown -->
-            <div id="notif-popover" class="hidden absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-2xl shadow-2xl border border-slate-200 z-50 overflow-hidden">
-              <div class="bg-[#005f69] text-white px-4 py-3 flex items-center justify-between">
-                <span class="font-bold text-xs uppercase tracking-wider flex items-center gap-1.5">
-                  <i data-lucide="bell-ring" class="w-4 h-4"></i> Trung tâm thông báo
-                </span>
-                <button onclick="clearNotifications()" class="text-[11px] text-teal-100 hover:text-white underline">Đánh dấu đã đọc</button>
-              </div>
-              <div id="notif-list" class="max-h-72 overflow-y-auto divide-y divide-slate-100 p-2 space-y-1">
-                <!-- Populated by JS -->
-              </div>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      <!-- =================================================================
-           VIEW 1: ADMIN SCREEN (MÀN HÌNH ADMIN)
-           ================================================================= -->
-      <main id="admin-main-view" class="flex-1 p-3 sm:p-4 lg:p-5 overflow-y-auto">
-
-        <!-- Active Wrong-Plate / Flood Alarm Top Strip (if triggered) -->
-        <div id="admin-emergency-strip" class="hidden mb-4 rounded-2xl p-3.5 bg-red-600 text-white shadow-lg flex flex-wrap items-center justify-between gap-3">
-          <div class="flex items-center gap-3">
-            <div class="bg-white/20 p-2 rounded-xl animate-pulse">
-              <i data-lucide="siren" class="w-6 h-6"></i>
-            </div>
-            <div>
-              <h4 id="emergency-strip-title" class="font-extrabold text-sm sm:text-base">CẢNH BÁO ĐỖ SAI VỊ TRÍ ĐẶT TRƯỚC!</h4>
-              <p id="emergency-strip-desc" class="text-xs text-red-100">Phát hiện phương tiện không khớp biển số đăng ký tại ô đỗ.</p>
-            </div>
-          </div>
-          <button onclick="hideEmergencyStrip()" class="bg-white/20 hover:bg-white/30 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition">
-            Đã xử lý / Đóng
-          </button>
-        </div>
-
-        <!-- ===============================================================
-             TAB 1: TỔNG QUAN (3-COLUMN CORE DASHBOARD MATCHING IMAGE 2)
-             =============================================================== -->
-        <section id="tab-overview" class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
-
-          <!-- *************************************************************
-               COLUMN 1 (LEFT - 3 COLS): THIẾT BỊ QUÉT TẠI CỔNG
-               ************************************************************* -->
-          <div class="lg:col-span-3 bg-white rounded-2xl shadow-sm border border-slate-200/90 overflow-hidden flex flex-col">
-            <!-- Dark Teal Header -->
-            <div class="bg-[#0d4a52] text-white px-4 py-3 flex items-center justify-between">
-              <div class="flex items-center gap-2">
-                <i data-lucide="scan-line" class="w-5 h-5 text-teal-300"></i>
-                <h2 class="font-bold text-sm sm:text-base tracking-tight">Thiết bị quét tại cổng</h2>
-              </div>
-              <button onclick="testVoiceAI()" class="text-[11px] bg-white/15 hover:bg-white/25 px-2 py-1 rounded-lg flex items-center gap-1 text-teal-100 transition" title="Kiểm tra giọng đọc AI Tiếng Việt">
-                <i data-lucide="volume-2" class="w-3.5 h-3.5"></i> AI Voice
-              </button>
-            </div>
-
-            <div class="p-3.5 space-y-3 flex-1 flex flex-col">
-              <!-- 2 Tabs: [Thẻ từ] and [Mã vạch UEH Student] -->
-              <div class="grid grid-cols-2 gap-2 bg-slate-100 p-1 rounded-xl border border-slate-200/70">
-                <button id="scan-tab-rfid" onclick="switchScanTab('rfid')" class="py-2 px-2.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition bg-[#005f69] text-white shadow-sm">
-                  <i data-lucide="credit-card" class="w-3.5 h-3.5"></i>
-                  <span>Thẻ từ</span>
-                </button>
-                <button id="scan-tab-barcode" onclick="switchScanTab('barcode')" class="py-2 px-2.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition text-slate-600 hover:text-slate-900">
-                  <i data-lucide="qr-code" class="w-3.5 h-3.5"></i>
-                  <span>Mã vạch UEH Student</span>
-                </button>
-              </div>
-
-              <!-- CAMERA VIEWFINDER BOX (2D / 1D Scanner) -->
-              <div class="scanner-frame rounded-xl h-52 sm:h-56 w-full flex flex-col items-center justify-center relative border border-slate-300 shadow-inner">
-                <!-- Glowing Corner Brackets -->
-                <div class="scanner-corner tl"></div>
-                <div class="scanner-corner tr"></div>
-                <div class="scanner-corner bl"></div>
-                <div class="scanner-corner br"></div>
-                <!-- Animated Laser Line -->
-                <div class="scanner-laser"></div>
-
-                <!-- Live html5-qrcode Container -->
-                <div id="qr-reader" class="w-full h-full hidden"></div>
-
-                <!-- Default Preview Illustration when Live Camera is idle -->
-                <div id="scanner-idle-preview" class="flex flex-col items-center justify-center text-center p-3 z-10 w-full h-full bg-gradient-to-b from-slate-800/90 to-slate-900/95">
-                  <div class="bg-white rounded-xl p-2.5 shadow-lg border-2 border-slate-300 max-w-[200px] w-full flex flex-col items-center">
-                    <div class="flex items-center justify-between w-full text-[10px] font-bold text-[#005f69] border-b border-slate-100 pb-1 mb-1">
-                      <span>UEH STUDENT ID</span>
-                      <span class="text-[#f26f21]">MEKONG</span>
-                    </div>
-                    <!-- Live mini barcode of currently displayed student -->
-                    <svg id="scanner-preview-barcode" class="w-full h-14"></svg>
-                    <div id="scanner-preview-code-label" class="text-[11px] font-mono font-bold text-slate-700 mt-0.5">31251570287</div>
-                  </div>
-                  <p id="scanner-hint-text" class="text-[11px] text-teal-200 font-medium mt-2 px-2">
-                    Bật Camera hoặc chọn nhanh SV bên dưới để quét mã 2 chiều
-                  </p>
-                </div>
-              </div>
-
-              <!-- SMART CAMERA CONTROLS (Auto Phone Rear Cam / Laptop Webcam + Lens Switcher + Image Capture) -->
-              <div class="bg-slate-50 rounded-xl p-2.5 border border-slate-200/90 space-y-2">
-                <div class="text-[11px] font-bold text-slate-600 uppercase tracking-wider flex items-center justify-between">
-                  <span class="flex items-center gap-1"><i data-lucide="camera" class="w-3.5 h-3.5 text-[#005f69]"></i> Điều khiển Camera thông minh</span>
-                  <span id="camera-active-indicator" class="text-[10px] font-semibold text-slate-400">Đang chờ</span>
-                </div>
-
-                <!-- Row 1: Primary [📷 Bật Camera Quét Mã] & Secondary [🔄 Đổi Camera (Trước / Sau)] -->
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                  <button id="btn-start-smart-cam" onclick="startSmartCameraScanner()" class="bg-[#005f69] hover:bg-[#0d4a52] text-white text-[11px] font-extrabold py-2.5 px-2.5 rounded-lg flex items-center justify-center gap-1.5 shadow-sm transition active:scale-95">
-                    <span>📷 Bật Camera Quét Mã</span>
-                  </button>
-                  <button id="btn-switch-cam-lens" onclick="switchCameraLens()" class="bg-slate-700 hover:bg-slate-800 text-white text-[11px] font-bold py-2.5 px-2 rounded-lg flex items-center justify-center gap-1 shadow-sm transition active:scale-95">
-                    <span>🔄 Đổi Camera (Trước / Sau)</span>
-                  </button>
-                </div>
-
-                <!-- Row 2: Camera Device List Dropdown & Stop Button -->
-                <div class="flex items-center gap-1.5">
-                  <select id="camera-device-select" onchange="onSelectCameraDevice(this.value)" class="flex-1 bg-white border border-slate-200 rounded-lg text-[11px] px-2 py-1.5 font-medium text-slate-700 focus:outline-none focus:border-[#005f69]">
-                    <option value="">-- Danh sách tất cả Camera --</option>
-                  </select>
-                  <button id="btn-stop-camera" onclick="stopCameraScanner()" class="hidden bg-red-100 hover:bg-red-200 text-red-700 text-[11px] font-bold px-2.5 py-1.5 rounded-lg transition shrink-0">
-                    ⏹️ Tắt Cam
-                  </button>
-                </div>
-
-                <!-- Row 3: Fallback Capture/Upload Barcode Image (100% mobile compatible) -->
-                <div class="flex items-center gap-1.5">
-                  <label onclick="unlockAudioAndSpeech()" class="flex-1 cursor-pointer bg-orange-50 hover:bg-orange-100 text-[#f26f21] border border-orange-200 font-bold text-[11px] py-2 px-2.5 rounded-lg flex items-center justify-center gap-1.5 transition active:scale-95">
-                    <i data-lucide="image-plus" class="w-3.5 h-3.5"></i>
-                    <span>📸 Chụp ảnh mã vạch</span>
-                    <input id="barcode-file-input" type="file" accept="image/*" capture="environment" class="hidden" onchange="handleBarcodeImageUpload(event)" />
-                  </label>
-                  <button onclick="downloadSampleBarcodeImage()" class="bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-semibold py-2 px-2 rounded-lg transition" title="Tải ảnh mã vạch mẫu về máy để test tải ảnh">
-                    <i data-lucide="download" class="w-3.5 h-3.5"></i>
-                  </button>
-                </div>
-
-                <!-- Row 3.5: 2 Nút bấm Kiểm tra Âm thanh & Giọng đọc AI trực quan -->
-                <div class="grid grid-cols-2 gap-1.5 pt-1 border-t border-slate-200/80">
-                  <button onclick="testAudioSuccessButton()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10.5px] py-2 px-2 rounded-lg shadow-sm flex items-center justify-center gap-1 transition active:scale-95" title="Phát 1 tiếng Bíp 900Hz (0.15s) + Đọc to: XÁC NHẬN THÀNH CÔNG">
-                    <span>🔊 Test: Xác nhận thành công</span>
-                  </button>
-                  <button onclick="testAudioFailButton()" class="bg-red-600 hover:bg-red-700 text-white font-bold text-[10.5px] py-2 px-2 rounded-lg shadow-sm flex items-center justify-center gap-1 transition active:scale-95" title="Phát 2 tiếng Bíp trầm 200Hz + Đọc to: KHÔNG THỂ XÁC NHẬN">
-                    <span>🔊 Test: Không thể xác nhận</span>
-                  </button>
-                </div>
-
-                <!-- Row 4: Quick Test 10 Group Students & Manual Barcode Input -->
-                <div class="pt-1 border-t border-slate-200/80 space-y-1.5">
-                  <label class="block text-[10px] font-bold text-slate-500 uppercase">
-                    ⚡ Quét nhanh 1 trong 10 thành viên nhóm (Test tức thì):
-                  </label>
-                  <div class="flex gap-1.5">
-                    <select id="quick-student-select" class="flex-1 bg-white border border-slate-200 rounded-lg text-xs px-2 py-1.5 font-semibold text-slate-800 focus:outline-none focus:border-[#005f69]">
-                      <!-- Populated with the 10 hardcoded students -->
-                    </select>
-                    <button onclick="triggerQuickStudentScan()" class="bg-[#f26f21] hover:bg-orange-600 text-white font-bold text-xs px-3 py-1.5 rounded-lg shadow-sm transition active:scale-95 shrink-0">
-                      Quét mã
-                    </button>
-                  </div>
-                  <!-- Manual input or simulate unknown barcode -->
-                  <div class="flex gap-1.5">
-                    <input id="manual-scan-input" type="text" placeholder="Nhập MSSV / Mã lạ để test..." class="flex-1 bg-white border border-slate-200 rounded-lg text-[11px] px-2.5 py-1.5 focus:outline-none focus:border-[#005f69]" onkeydown="if(event.key==='Enter') triggerManualCodeScan()" />
-                    <button onclick="triggerManualCodeScan()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-[11px] px-2.5 py-1.5 rounded-lg transition">
-                      Kiểm tra
-                    </button>
-                    <button onclick="simulateStrangerScan()" class="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 font-bold text-[11px] px-2 py-1.5 rounded-lg transition" title="Test quét mã lạ không có trong Database">
-                      Mã lạ
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <!-- SCAN STATUS BANNER -->
-              <div id="scan-status-banner" class="flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 font-extrabold text-sm">
-                <i data-lucide="check-circle-2" class="w-5 h-5 text-emerald-600 shrink-0"></i>
-                <span id="scan-status-text">Quét thành công!</span>
-              </div>
-
-              <!-- SCANNED STUDENT INFO CARD (Matching Image 2) -->
-              <div id="scanned-student-card" class="bg-[#f8fafc] rounded-xl p-3 border border-slate-200/90 space-y-2.5">
-                <div class="flex items-center gap-3">
-                  <!-- Avatar with UEH shirt style -->
-                  <div class="relative w-16 h-16 rounded-xl bg-gradient-to-b from-sky-100 to-teal-50 border border-slate-200 flex flex-col items-center justify-end overflow-hidden shrink-0 shadow-sm">
-                    <div id="scanned-avatar-circle" class="w-8 h-8 rounded-full bg-[#005f69] text-white font-extrabold text-xs flex items-center justify-center mb-1 shadow">
-                      NT
-                    </div>
-                    <div class="w-full bg-white py-0.5 text-center border-t border-slate-100">
-                      <span class="text-[8px] font-black text-[#005f69] tracking-tighter">UEH MEKONG</span>
-                    </div>
-                  </div>
-                  <div class="min-w-0 flex-1 space-y-0.5">
-                    <h3 id="scanned-student-name" class="font-extrabold text-sm sm:text-base text-slate-900 truncate">
-                      Nguyễn Đức Trí
-                    </h3>
-                    <p class="text-xs text-slate-600 font-medium">
-                      MSSV: <span id="scanned-student-mssv" class="font-bold text-slate-800 font-mono">31251570287</span>
-                    </p>
-                    <p class="text-xs text-slate-600 font-medium">
-                      Ngày sinh: <span id="scanned-student-dob" class="font-semibold text-slate-700">24/07/2007</span>
-                    </p>
-                    <p class="text-xs text-slate-600 font-medium">
-                      Biển số xe: <span id="scanned-student-plate" class="font-bold text-[#005f69]">62AU-006.41</span>
-                    </p>
-                    <p class="text-[11px] text-slate-500 font-medium">
-                      Dòng xe: <span id="scanned-student-model" class="font-semibold text-slate-700">SH mode (Xe máy)</span>
-                    </p>
-                  </div>
-                </div>
-
-                <!-- Assigned Parking Slot & Zone Location Highlight Box -->
-                <div id="scanned-location-box" class="bg-teal-50/90 border border-teal-200 rounded-xl px-3 py-2 flex items-center justify-between">
-                  <span class="text-[11px] font-bold text-slate-600 flex items-center gap-1">
-                    <i data-lucide="map-pin" class="w-3.5 h-3.5 text-[#f26f21]"></i>
-                    Vị trí ô đỗ:
-                  </span>
-                  <span id="scanned-student-slot" class="text-xs font-black text-[#005f69]">
-                    Ô A02 - Bãi đỗ xe Khu A
-                  </span>
-                </div>
-
-                <!-- Check-in / Check-out 2-way Status Box -->
-                <div id="scanned-direction-box" class="bg-white rounded-xl p-2.5 border border-slate-200/80 flex items-center justify-between">
-                  <div class="flex items-center gap-2">
-                    <div id="scanned-direction-icon" class="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
-                      <i data-lucide="log-in" class="w-4 h-4"></i>
-                    </div>
-                    <div>
-                      <div id="scanned-direction-label" class="text-xs font-extrabold text-slate-800">Check-in (Vào bãi)</div>
-                      <div id="scanned-direction-time" class="text-[11px] text-slate-500 font-medium">09:24 - 17/11/2026</div>
-                    </div>
-                  </div>
-                  <span id="scanned-direction-badge" class="px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-700">
-                    Thành công
-                  </span>
-                </div>
-
-                <!-- Refresh & Show Barcode Modal Buttons -->
-                <div class="grid grid-cols-2 gap-2">
-                  <button onclick="resetScannerCard()" class="w-full py-2 px-3 rounded-xl bg-[#eef4f8] hover:bg-slate-200/80 text-slate-700 font-bold text-xs flex items-center justify-center gap-1.5 transition">
-                    <i data-lucide="refresh-cw" class="w-3.5 h-3.5 text-[#005f69]"></i>
-                    <span>Làm mới</span>
-                  </button>
-                  <button onclick="openCurrentStudentBarcodeModal()" class="w-full py-2 px-3 rounded-xl bg-[#005f69]/10 hover:bg-[#005f69]/20 text-[#005f69] font-bold text-xs flex items-center justify-center gap-1.5 transition">
-                    <i data-lucide="barcode" class="w-3.5 h-3.5"></i>
-                    <span>Mã vạch SV</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- *************************************************************
-               COLUMN 2 & 3 (CENTER + RIGHT SUB-COLUMN - 9 COLS)
-               ************************************************************* -->
-          <div class="lg:col-span-9 space-y-4">
-
-            <!-- ROW 1: 4 KPI CARDS (Ô trống, Đang sử dụng, Đã đặt trước, Không khả dụng) -->
-            <div class="grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">
-              <!-- KPI 1: Ô trống -->
-              <div class="bg-[#effaf5] rounded-2xl p-3.5 sm:p-4 border border-emerald-200/80 shadow-sm flex items-center gap-3.5">
-                <div class="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-emerald-500/15 text-emerald-600 flex items-center justify-center shrink-0">
-                  <i data-lucide="bike" class="w-7 h-7 sm:w-8 sm:h-8"></i>
-                </div>
-                <div>
-                  <div id="kpi-free-count" class="text-2xl sm:text-3xl font-black text-emerald-700 leading-none">120</div>
-                  <div class="text-xs sm:text-sm font-bold text-slate-700 mt-1">Ô trống</div>
-                  <div id="kpi-free-pct" class="text-[11px] font-semibold text-slate-500">(~ 42%)</div>
-                </div>
-              </div>
-
-              <!-- KPI 2: Đang sử dụng -->
-              <div class="bg-[#eef6ff] rounded-2xl p-3.5 sm:p-4 border border-blue-200/80 shadow-sm flex items-center gap-3.5">
-                <div class="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-blue-500/15 text-blue-600 flex items-center justify-center shrink-0">
-                  <i data-lucide="bike" class="w-7 h-7 sm:w-8 sm:h-8"></i>
-                </div>
-                <div>
-                  <div id="kpi-occupied-count" class="text-2xl sm:text-3xl font-black text-blue-700 leading-none">150</div>
-                  <div class="text-xs sm:text-sm font-bold text-slate-700 mt-1">Đang sử dụng</div>
-                  <div id="kpi-occupied-pct" class="text-[11px] font-semibold text-slate-500">(~ 53%)</div>
-                </div>
-              </div>
-
-              <!-- KPI 3: Đã đặt trước -->
-              <div class="bg-[#fff7ed] rounded-2xl p-3.5 sm:p-4 border border-orange-200/80 shadow-sm flex items-center gap-3.5">
-                <div class="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-orange-500/15 text-[#f26f21] flex items-center justify-center shrink-0">
-                  <i data-lucide="calendar-clock" class="w-7 h-7 sm:w-8 sm:h-8"></i>
-                </div>
-                <div>
-                  <div id="kpi-reserved-count" class="text-2xl sm:text-3xl font-black text-[#f26f21] leading-none">15</div>
-                  <div class="text-xs sm:text-sm font-bold text-slate-700 mt-1">Đã đặt trước</div>
-                  <div id="kpi-reserved-pct" class="text-[11px] font-semibold text-slate-500">(~ 5%)</div>
-                </div>
-              </div>
-
-              <!-- KPI 4: Không khả dụng -->
-              <div class="bg-[#fef2f2] rounded-2xl p-3.5 sm:p-4 border border-red-200/80 shadow-sm flex items-center gap-3.5">
-                <div class="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-red-500/15 text-red-600 flex items-center justify-center shrink-0">
-                  <i data-lucide="alert-triangle" class="w-7 h-7 sm:w-8 sm:h-8"></i>
-                </div>
-                <div>
-                  <div id="kpi-unavailable-count" class="text-2xl sm:text-3xl font-black text-red-600 leading-none">5</div>
-                  <div class="text-xs sm:text-sm font-bold text-slate-700 mt-1">Không khả dụng</div>
-                  <div id="kpi-unavailable-pct" class="text-[11px] font-semibold text-slate-500">(~ 2%)</div>
-                </div>
-              </div>
-            </div>
-
-            <!-- ROW 2: CENTER 2D MAP + RIGHT SUB-COLUMN (THÔNG TIN Ô ĐỖ & CẢNH BÁO) -->
-            <div class="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
-
-              <!-- =========================================================
-                   CENTER MAP PANEL (8 COLS)
-                   ========================================================= -->
-              <div class="xl:col-span-8 bg-white rounded-2xl shadow-sm border border-slate-200/90 p-4 flex flex-col justify-between">
-                <!-- Map Header Controls -->
-                <div class="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-100">
-                  <div class="flex items-center gap-2 min-w-0 flex-1">
-                    <i data-lucide="map-pin" class="w-5 h-5 text-[#005f69] shrink-0"></i>
-                    <select id="zone-selector-dropdown" onchange="selectParkingZone(this.value)" class="font-extrabold text-sm sm:text-base text-slate-800 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl px-2.5 py-1.5 focus:outline-none focus:border-[#005f69] truncate max-w-full cursor-pointer">
-                      <!-- 7 Real UEH Mekong Parking Zones populated by JS -->
-                    </select>
-                  </div>
-
-                  <!-- Filter Pills: Campus Map Toggle, [Nhà xe] / [Ngoài trời], [Xe máy] / [Ô tô] -->
-                  <div class="flex flex-wrap items-center gap-1.5">
-                    <button id="btn-toggle-campus-overview" onclick="toggleInlineCampusMap()" class="px-2.5 py-1.5 rounded-xl text-xs font-bold border border-teal-200 bg-teal-50 hover:bg-teal-100 text-[#005f69] flex items-center gap-1 transition">
-                      <i data-lucide="map" class="w-3.5 h-3.5"></i>
-                      <span id="btn-toggle-campus-label">Sơ đồ Khuôn viên (7 Bãi)</span>
-                    </button>
-
-                    <!-- [Nhà xe] / [Ngoài trời] -->
-                    <div class="bg-slate-100 p-0.5 rounded-xl flex items-center border border-slate-200">
-                      <button id="filter-roof-indoor" onclick="filterZoneByRoof('indoor')" class="px-2.5 py-1 rounded-lg text-xs font-bold transition bg-[#005f69] text-white">
-                        Nhà xe
-                      </button>
-                      <button id="filter-roof-outdoor" onclick="filterZoneByRoof('outdoor')" class="px-2.5 py-1 rounded-lg text-xs font-bold transition text-slate-600 hover:text-slate-900">
-                        Ngoài trời
-                      </button>
-                    </div>
-
-                    <!-- [Xe máy] / [Ô tô] -->
-                    <div class="bg-slate-100 p-0.5 rounded-xl flex items-center border border-slate-200">
-                      <button id="filter-vehicle-moto" onclick="setVehicleFilter('Xe máy')" class="px-2 py-1 rounded-lg text-xs font-bold transition bg-[#005f69] text-white">
-                        🛵 Xe máy
-                      </button>
-                      <button id="filter-vehicle-car" onclick="setVehicleFilter('Ô tô')" class="px-2 py-1 rounded-lg text-xs font-bold transition text-slate-600 hover:text-slate-900">
-                        🚗 Ô tô
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Sub-bar showing current zone description, roof badge, Quick 1-Tap Edit Toggle & Reset All Slots to Free -->
-                <div class="flex flex-wrap items-center justify-between gap-2 my-2.5 text-xs bg-slate-50/90 p-2 rounded-xl border border-slate-200/80">
-                  <div class="flex items-center flex-wrap gap-2">
-                    <span id="current-zone-roof-badge" class="px-2.5 py-0.5 rounded-full font-bold bg-teal-100 text-[#005f69]">
-                      Có mái che
-                    </span>
-                    <span id="current-zone-location-desc" class="text-slate-500 font-medium">
-                      Phía Bắc Sân bóng chuyền - Cạnh Khu A
-                    </span>
-                  </div>
-
-                  <!-- CÁCH 2: Công tắc "✏️ Đổi nhanh trạng thái ô" (1 chạm xoay vòng) & Nút "[🔄 Đặt lại tất cả ô về Trống]" -->
-                  <div class="flex items-center flex-wrap gap-1.5 ml-auto">
-                    <button id="btn-toggle-quick-edit" onclick="toggleQuickSlotEditMode()" class="px-2.5 py-1.5 rounded-lg text-[11px] font-extrabold border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 flex items-center gap-1.5 shadow-sm transition active:scale-95" title="Khi BẬT: Mỗi lần nhấn vào 1 ô trên sơ đồ 2D sẽ tự động xoay vòng qua 4 trạng thái (Trống -> Đang sử dụng -> Đặt trước -> Không khả dụng -> Trống)">
-                      <span id="quick-edit-switch-dot" class="w-2.5 h-2.5 rounded-full bg-slate-400"></span>
-                      <span id="quick-edit-switch-label">✏️ Đổi nhanh trạng thái ô: TẮT</span>
-                    </button>
-
-                    <button onclick="resetAllSlotsInCurrentZoneToFree()" class="px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 flex items-center gap-1 shadow-sm transition active:scale-95" title="Đặt lại toàn bộ 20 ô của bãi đỗ hiện tại về trạng thái Trống (Xanh lá)">
-                      <span>🔄 Đặt lại tất cả ô về Trống</span>
-                    </button>
-                  </div>
-                </div>
-
-                <!-- VIEW A: 20-SLOT 2D DIGITAL PARKING LOT (Default) -->
-                <div id="parking-20-grid-container" class="parking-lot-surface rounded-2xl p-3 sm:p-4 relative">
-                  <!-- Decorative Corner Trees (like Image 2) -->
-                  <div class="absolute -top-2 -left-2 w-7 h-7 rounded-full bg-emerald-600/90 border-2 border-emerald-300 shadow flex items-center justify-center text-white text-xs pointer-events-none">🌳</div>
-                  <div class="absolute -top-2 -right-2 w-7 h-7 rounded-full bg-emerald-600/90 border-2 border-emerald-300 shadow flex items-center justify-center text-white text-xs pointer-events-none">🌳</div>
-                  <div class="absolute -bottom-2 -left-2 w-7 h-7 rounded-full bg-emerald-600/90 border-2 border-emerald-300 shadow flex items-center justify-center text-white text-xs pointer-events-none">🌳</div>
-                  <div class="absolute -bottom-2 -right-2 w-7 h-7 rounded-full bg-emerald-600/90 border-2 border-emerald-300 shadow flex items-center justify-center text-white text-xs pointer-events-none">🌳</div>
-
-                  <div class="flex items-stretch gap-2 sm:gap-3">
-                    <!-- Left Road: Lối vào ↑ -->
-                    <div class="w-7 sm:w-8 bg-slate-300/70 rounded-xl flex flex-col items-center justify-center py-2 border border-slate-400/40 shrink-0">
-                      <span class="text-slate-700 font-black text-sm mb-1">↑</span>
-                      <span class="vertical-road-text text-[11px] sm:text-xs font-extrabold text-slate-700 tracking-wider uppercase">Lối vào</span>
-                    </div>
-
-                    <!-- Center 20 Slots (Row 1: 01-10, Driving Lane, Row 2: 11-20) -->
-                    <div class="flex-1 space-y-3 min-w-0">
-                      <!-- Top Row (Slots 1 - 10) -->
-                      <div id="slots-row-top" class="grid grid-cols-5 sm:grid-cols-10 gap-1.5 sm:gap-2">
-                        <!-- Rendered by JS -->
-                      </div>
-
-                      <!-- Middle Road Lane with Dashed Line -->
-                      <div class="h-5 sm:h-6 rounded-lg bg-slate-400/35 flex items-center justify-between px-4 relative">
-                        <div class="w-full border-t-2 border-dashed border-white/80"></div>
-                        <span class="absolute left-1/2 -translate-x-1/2 bg-slate-200/90 px-2.5 py-0.5 rounded text-[9px] font-bold text-slate-600 uppercase tracking-widest">
-                          Làn xe lưu thông 2 chiều
-                        </span>
-                      </div>
-
-                      <!-- Bottom Row (Slots 11 - 20) -->
-                      <div id="slots-row-bottom" class="grid grid-cols-5 sm:grid-cols-10 gap-1.5 sm:gap-2">
-                        <!-- Rendered by JS -->
-                      </div>
-                    </div>
-
-                    <!-- Right Road: ↓ Lối ra -->
-                    <div class="w-7 sm:w-8 bg-slate-300/70 rounded-xl flex flex-col items-center justify-center py-2 border border-slate-400/40 shrink-0">
-                      <span class="vertical-road-text-right text-[11px] sm:text-xs font-extrabold text-slate-700 tracking-wider uppercase">Lối ra</span>
-                      <span class="text-slate-700 font-black text-sm mt-1">↓</span>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- VIEW B: INLINE INTERACTIVE CAMPUS MAP OF UEH MEKONG (7 ZONES) -->
-                <div id="inline-campus-map-container" class="hidden rounded-2xl border-2 border-slate-800 bg-white p-3 relative overflow-hidden">
-                  <div class="flex flex-wrap items-center justify-between gap-2 mb-2 pb-2 border-b border-slate-200">
-                    <div>
-                      <h4 class="font-black text-sm text-slate-900 uppercase">SƠ ĐỒ KHUÔN VIÊN UEH MEKONG (7 KHU VỰC BÃI ĐỖ XE)</h4>
-                      <p class="text-[11px] text-slate-500">Nhấp vào bất kỳ khung <span class="text-emerald-700 font-bold">[P] Bãi đỗ xe</span> màu xanh lá nào trên bản đồ để mở sơ đồ 20 ô đỗ của khu vực đó.</p>
-                    </div>
-                    <button onclick="openOriginalMapModal()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition">
-                      <i data-lucide="image" class="w-3.5 h-3.5"></i> Xem ảnh bản vẽ gốc
-                    </button>
-                  </div>
-                  <!-- Populated dynamically with the interactive UEH Mekong campus map -->
-                  <div id="inline-campus-map-render"></div>
-                </div>
-
-                <!-- Legend at bottom of map -->
-                <div class="flex flex-wrap items-center justify-center gap-4 sm:gap-6 pt-3 mt-2 text-xs font-bold text-slate-700">
-                  <div class="flex items-center gap-1.5">
-                    <span class="w-3 h-3 rounded-full bg-emerald-500 inline-block shadow-sm"></span>
-                    <span>Trống</span>
-                  </div>
-                  <div class="flex items-center gap-1.5">
-                    <span class="w-3 h-3 rounded-full bg-blue-600 inline-block shadow-sm"></span>
-                    <span>Đang sử dụng</span>
-                  </div>
-                  <div class="flex items-center gap-1.5">
-                    <span class="w-3 h-3 rounded-full bg-[#f26f21] inline-block shadow-sm"></span>
-                    <span>Đặt trước</span>
-                  </div>
-                  <div class="flex items-center gap-1.5">
-                    <span class="w-3 h-3 rounded-full bg-red-500 inline-block shadow-sm"></span>
-                    <span>Không khả dụng / Ngập nước</span>
-                  </div>
-                </div>
-              </div>
-
-              <!-- =========================================================
-                   RIGHT SUB-COLUMN (4 COLS): THÔNG TIN Ô ĐỖ & CẢNH BÁO
-                   ========================================================= -->
-              <div class="xl:col-span-4 space-y-4">
-
-                <!-- TOP CARD: THÔNG TIN Ô ĐỖ (Slot Details + Booking + License Plate AI Check) -->
-                <div class="bg-white rounded-2xl shadow-sm border border-slate-200/90 p-4 space-y-3">
-                  <div class="flex items-center justify-between border-b border-slate-100 pb-2.5">
-                    <div class="flex items-center gap-2">
-                      <i data-lucide="info" class="w-5 h-5 text-[#005f69]"></i>
-                      <h3 class="font-extrabold text-sm sm:text-base text-slate-800">Thông tin ô đỗ</h3>
-                    </div>
-                    <span id="slot-detail-zone-tag" class="text-[11px] font-bold text-slate-500">Khu A</span>
-                  </div>
-
-                  <!-- Slot Code & Status Badge -->
-                  <div class="flex items-center gap-3">
-                    <div id="slot-detail-code" class="text-2xl sm:text-3xl font-black text-[#005f69] bg-emerald-50 border border-emerald-200 px-4 py-2 rounded-xl">
-                      A01
-                    </div>
-                    <div id="slot-detail-badge" class="px-3.5 py-2 rounded-xl bg-emerald-50 text-emerald-700 font-bold text-xs sm:text-sm flex items-center gap-1.5 border border-emerald-200">
-                      <i data-lucide="check-circle-2" class="w-4 h-4"></i>
-                      <span>Trống</span>
-                    </div>
-                  </div>
-
-                  <!-- Key-Value Specifications -->
-                  <div class="text-xs space-y-1.5 bg-slate-50 p-3 rounded-xl border border-slate-200/70">
-                    <div class="flex justify-between py-0.5">
-                      <span class="text-slate-500 font-medium">Khu vực:</span>
-                      <span id="slot-detail-area" class="font-bold text-slate-800 text-right">Nhà xe Khu A (Có mái che)</span>
-                    </div>
-                    <div class="flex justify-between py-0.5">
-                      <span class="text-slate-500 font-medium">Loại phương tiện:</span>
-                      <span id="slot-detail-vehicle" class="font-bold text-slate-800">Xe máy</span>
-                    </div>
-                    <div class="flex justify-between py-0.5">
-                      <span class="text-slate-500 font-medium">Trạng thái:</span>
-                      <span id="slot-detail-status-text" class="font-bold text-emerald-700">Sẵn sàng sử dụng</span>
-                    </div>
-                    <div class="flex justify-between py-0.5 border-t border-slate-200/70 pt-1.5">
-                      <span class="text-slate-500 font-medium">Sinh viên:</span>
-                      <span id="slot-detail-student" class="font-bold text-slate-800 text-right">— Chưa có —</span>
-                    </div>
-                    <div class="flex justify-between py-0.5">
-                      <span class="text-slate-500 font-medium">Biển số đăng ký:</span>
-                      <span id="slot-detail-plate" class="font-mono font-bold text-[#005f69]">—</span>
-                    </div>
-                  </div>
-
-                  <!-- CÁCH 1: Chỉnh trực tiếp trạng thái ô đỗ (4 nút trực quan + Gán nhanh Sinh viên / Biển số) -->
-                  <div class="bg-[#f8fafc] rounded-xl p-2.5 border border-slate-200 space-y-2">
-                    <div class="flex items-center justify-between">
-                      <span class="text-[11px] font-extrabold text-slate-700 flex items-center gap-1">
-                        <i data-lucide="sliders-horizontal" class="w-3.5 h-3.5 text-[#005f69]"></i>
-                        Chỉnh nhanh trạng thái ô <span id="direct-edit-slot-label" class="text-[#f26f21]">A01</span>:
-                      </span>
-                      <span class="text-[10px] font-semibold text-slate-400">Đồng bộ tức thì</span>
-                    </div>
-
-                    <!-- Bộ 4 nút chuyển đổi trạng thái trực quan -->
-                    <div class="grid grid-cols-2 gap-1.5">
-                      <button id="btn-set-status-free" onclick="setSlotDirectStatus('free')" class="py-1.5 px-2 rounded-lg text-[11px] font-extrabold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 flex items-center justify-center gap-1 shadow-sm transition active:scale-95">
-                        <span>🟢 Trống</span>
-                      </button>
-                      <button id="btn-set-status-occupied" onclick="setSlotDirectStatus('occupied')" class="py-1.5 px-2 rounded-lg text-[11px] font-extrabold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-300 flex items-center justify-center gap-1 shadow-sm transition active:scale-95">
-                        <span>🔵 Đang sử dụng</span>
-                      </button>
-                      <button id="btn-set-status-reserved" onclick="setSlotDirectStatus('reserved')" class="py-1.5 px-2 rounded-lg text-[11px] font-extrabold bg-orange-50 hover:bg-orange-100 text-[#f26f21] border border-orange-300 flex items-center justify-center gap-1 shadow-sm transition active:scale-95">
-                        <span>🟠 Đặt trước</span>
-                      </button>
-                      <button id="btn-set-status-unavailable" onclick="setSlotDirectStatus('unavailable')" class="py-1.5 px-2 rounded-lg text-[11px] font-extrabold bg-red-50 hover:bg-red-100 text-red-600 border border-red-300 flex items-center justify-center gap-1 shadow-sm transition active:scale-95">
-                        <span>🔴 Không khả dụng</span>
-                      </button>
-                    </div>
-
-                    <!-- Khung gán nhanh 1 trong 10 Sinh viên hoặc nhập Biển số tùy ý cho ô đang chọn -->
-                    <div id="slot-quick-assign-panel" class="pt-1.5 border-t border-slate-200/80 space-y-1.5">
-                      <label class="block text-[10px] font-bold text-slate-500">
-                        👤 Gán Sinh viên / Biển số cho ô này (khi Đang sử dụng / Đặt trước):
-                      </label>
-                      <select id="slot-direct-student-select" onchange="onChangeSlotDirectStudent(this.value)" class="w-full bg-white border border-slate-200 rounded-lg text-[11px] px-2 py-1.5 font-semibold text-slate-800 focus:outline-none focus:border-[#005f69]">
-                        <!-- Populated with 10 group students + custom option -->
-                      </select>
-                      <div class="flex gap-1.5">
-                        <input id="slot-direct-custom-plate" type="text" placeholder="Hoặc nhập biển số tùy ý..." class="flex-1 bg-white border border-slate-200 rounded-lg text-[11px] px-2 py-1 font-mono font-bold text-[#005f69] focus:outline-none focus:border-[#005f69]" />
-                        <button onclick="applyCustomVehicleToSelectedSlot()" class="bg-[#005f69] hover:bg-[#0d4a52] text-white text-[11px] font-bold px-2.5 py-1 rounded-lg transition shrink-0">
-                          Gán xe
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  <!-- Action Buttons: Đặt chỗ trước & Mô phỏng xe vào ô (Đối chiếu biển số) -->
-                  <div class="space-y-2 pt-1">
-                    <button id="btn-slot-reserve" onclick="openReserveSlotModal()" class="w-full py-2.5 px-4 rounded-xl bg-[#005f69] hover:bg-[#0d4a52] text-white font-bold text-xs sm:text-sm flex items-center justify-between shadow-sm transition active:scale-95">
-                      <span class="flex items-center gap-2">
-                        <i data-lucide="calendar-plus" class="w-4 h-4"></i>
-                        <span>Đặt chỗ trước tại ô này</span>
-                      </span>
-                      <i data-lucide="chevron-right" class="w-4 h-4"></i>
-                    </button>
-
-                    <!-- PHÂN HỆ 2: Mô phỏng Camera AI phát hiện xe vào ô & Đối chiếu biển số -->
-                    <div class="bg-slate-50 rounded-xl p-2.5 border border-slate-200 space-y-2">
-                      <div class="flex items-center justify-between">
-                        <span class="text-[11px] font-extrabold text-slate-700 flex items-center gap-1">
-                          <i data-lucide="cctv" class="w-3.5 h-3.5 text-[#f26f21]"></i>
-                          Mô phỏng xe vào ô (Đối chiếu biển số)
-                        </span>
-                        <button onclick="selectQuickReservedSlotForDemo()" class="text-[10px] font-bold text-[#005f69] hover:underline" title="Chọn nhanh ô A12 (Hồ Thị Mỹ Hường) hoặc A15 (Khả Vy) đang Đặt trước">
-                          Chọn ô A12 (Đặt trước)
-                        </button>
-                      </div>
-
-                      <div class="flex gap-1.5">
-                        <input id="sim-incoming-plate-input" type="text" placeholder="Nhập biển số xe vào ô..." class="flex-1 bg-white border border-slate-200 rounded-lg text-xs px-2.5 py-1.5 font-mono font-bold text-slate-800 focus:outline-none focus:border-[#005f69]" />
-                        <button onclick="verifyIncomingVehiclePlate()" class="bg-[#005f69] hover:bg-[#0d4a52] text-white text-xs font-bold px-3 py-1.5 rounded-lg transition shrink-0">
-                          Đối chiếu
-                        </button>
-                      </div>
-
-                      <div class="grid grid-cols-2 gap-1.5">
-                        <button onclick="simulatePlateMatchOnSelectedSlot(true)" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-[11px] font-bold py-1.5 px-2 rounded-lg flex items-center justify-center gap-1 transition">
-                          <i data-lucide="check" class="w-3.5 h-3.5"></i> Xe đúng biển số
-                        </button>
-                        <button onclick="simulatePlateMatchOnSelectedSlot(false)" class="bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-[11px] font-bold py-1.5 px-2 rounded-lg flex items-center justify-center gap-1 transition">
-                          <i data-lucide="alert-octagon" class="w-3.5 h-3.5"></i> Xe sai biển số
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- BOTTOM CARD: CẢNH BÁO (Weather & Flood Control + Alert List) -->
-                <div class="bg-white rounded-2xl shadow-sm border border-slate-200/90 p-4 space-y-3">
-                  <div class="flex items-center justify-between border-b border-slate-100 pb-2.5">
-                    <div class="flex items-center gap-2">
-                      <i data-lucide="bell-ring" class="w-5 h-5 text-red-500"></i>
-                      <h3 class="font-extrabold text-sm sm:text-base text-slate-800">Cảnh báo</h3>
-                    </div>
-                    <button onclick="switchSidebarTab('alerts')" class="text-xs font-bold text-[#005f69] hover:underline flex items-center gap-1">
-                      <span>Xem tất cả</span>
-                      <i data-lucide="arrow-right" class="w-3.5 h-3.5"></i>
-                    </button>
-                  </div>
-
-                  <!-- Alert Items matching Image 2 + Live Alerts -->
-                  <div id="dashboard-alert-list" class="space-y-2 max-h-44 overflow-y-auto pr-1">
-                    <!-- Rendered by JS -->
-                  </div>
-
-                  <!-- PHÂN HỆ 3: Nút kích hoạt giả lập Mưa lớn & Ngập nước bãi ngoài trời -->
-                  <div class="pt-1 border-t border-slate-100 space-y-2">
-                    <button id="btn-trigger-flood" onclick="toggleFloodSimulation()" class="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-[#f26f21] to-red-600 hover:from-orange-600 hover:to-red-700 text-white font-extrabold text-xs flex items-center justify-center gap-2 shadow-md transition active:scale-95">
-                      <i data-lucide="cloud-rain-wind" class="w-4 h-4 shrink-0"></i>
-                      <span>🌧️ Giả lập Mưa lớn & Ngập nước bãi ngoài trời</span>
-                    </button>
-                  </div>
-                </div>
-
-              </div>
-            </div>
-
-            <!-- ROW 3: BOTTOM 2 PANELS (THỐNG KÊ NHANH & HOẠT ĐỘNG GẦN ĐÂY) -->
-            <div class="grid grid-cols-1 xl:grid-cols-12 gap-4 items-stretch">
-
-              <!-- LEFT PANEL (5 COLS): THỐNG KÊ NHANH -->
-              <div class="xl:col-span-5 bg-white rounded-2xl shadow-sm border border-slate-200/90 p-4 flex flex-col justify-between">
-                <div class="flex items-center justify-between border-b border-slate-100 pb-2.5 mb-3">
-                  <div class="flex items-center gap-2">
-                    <i data-lucide="bar-chart-3" class="w-5 h-5 text-[#005f69]"></i>
-                    <h3 class="font-extrabold text-sm sm:text-base text-slate-800">Thống kê nhanh</h3>
-                  </div>
-                  <select class="bg-slate-100 border border-slate-200 text-xs font-bold text-slate-700 rounded-lg px-2.5 py-1 focus:outline-none">
-                    <option>Hôm nay</option>
-                    <option>Tuần này</option>
-                    <option>Tháng 11/2026</option>
-                  </select>
-                </div>
-
-                <div class="grid grid-cols-2 sm:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-slate-200/80 my-auto py-2">
-                  <!-- Stat 1: Lượt vào -->
-                  <div class="px-2 py-2 flex flex-col items-center text-center">
-                    <div class="text-[#005f69] mb-1"><i data-lucide="bike" class="w-6 h-6"></i></div>
-                    <div id="stat-total-in" class="text-xl sm:text-2xl font-black text-slate-800">1.320</div>
-                    <div class="text-xs font-semibold text-slate-500 mt-0.5">Lượt vào</div>
-                  </div>
-                  <!-- Stat 2: Lượt ra -->
-                  <div class="px-2 py-2 flex flex-col items-center text-center">
-                    <div class="text-[#005f69] mb-1"><i data-lucide="bike" class="w-6 h-6"></i></div>
-                    <div id="stat-total-out" class="text-xl sm:text-2xl font-black text-slate-800">1.290</div>
-                    <div class="text-xs font-semibold text-slate-500 mt-0.5">Lượt ra</div>
-                  </div>
-                  <!-- Stat 3: Thời gian TB -->
-                  <div class="px-2 py-2 flex flex-col items-center text-center">
-                    <div class="text-[#005f69] mb-1"><i data-lucide="timer" class="w-6 h-6"></i></div>
-                    <div class="text-xl sm:text-2xl font-black text-slate-800">2h 15p</div>
-                    <div class="text-xs font-semibold text-slate-500 mt-0.5">Thời gian TB</div>
-                  </div>
-                  <!-- Stat 4: Tỷ lệ sử dụng -->
-                  <div class="px-2 py-2 flex flex-col items-center text-center">
-                    <div class="text-blue-600 mb-1"><i data-lucide="pie-chart" class="w-6 h-6"></i></div>
-                    <div id="stat-utilization-rate" class="text-xl sm:text-2xl font-black text-slate-800">92%</div>
-                    <div class="text-xs font-semibold text-slate-500 mt-0.5">Tỷ lệ sử dụng</div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- RIGHT PANEL (7 COLS): HOẠT ĐỘNG GẦN ĐÂY -->
-              <div class="xl:col-span-7 bg-white rounded-2xl shadow-sm border border-slate-200/90 p-4 flex flex-col justify-between">
-                <div class="flex items-center justify-between border-b border-slate-100 pb-2.5 mb-2">
-                  <div class="flex items-center gap-2">
-                    <i data-lucide="history" class="w-5 h-5 text-[#005f69]"></i>
-                    <h3 class="font-extrabold text-sm sm:text-base text-slate-800">Hoạt động gần đây</h3>
-                  </div>
-                  <button onclick="switchSidebarTab('history')" class="text-xs font-bold text-[#005f69] hover:underline flex items-center gap-1">
-                    <span>Xem tất cả</span>
-                    <i data-lucide="arrow-right" class="w-3.5 h-3.5"></i>
-                  </button>
-                </div>
-
-                <div class="overflow-x-auto">
-                  <table class="w-full text-left border-collapse">
-                    <thead>
-                      <tr class="border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase">
-                        <th class="py-2 px-2">Thời gian</th>
-                        <th class="py-2 px-2">Phương tiện</th>
-                        <th class="py-2 px-2">Biển số & Sinh viên</th>
-                        <th class="py-2 px-2">Ô đỗ</th>
-                        <th class="py-2 px-2 text-right">Trạng thái</th>
-                      </tr>
-                    </thead>
-                    <tbody id="recent-activity-tbody" class="divide-y divide-slate-100 text-xs">
-                      <!-- Populated by JS -->
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-            </div>
-
-          </div>
-        </section>
-
-        <!-- ===============================================================
-             TAB 2: SƠ ĐỒ KHUÔN VIÊN UEH MEKONG (FULL INTERACTIVE MAP + ORIGINAL DRAWING)
-             =============================================================== -->
-        <section id="tab-campus-map" class="hidden space-y-4">
-          <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-6">
-            <div class="flex flex-wrap items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-100">
-              <div>
-                <h2 class="text-lg sm:text-xl font-black text-slate-900 flex items-center gap-2">
-                  <i data-lucide="map" class="w-6 h-6 text-[#005f69]"></i>
-                  <span>SƠ ĐỒ KHUÔN VIÊN UEH MEKONG & 7 KHU VỰC BÃI ĐỖ XE THỰC TẾ</span>
-                </h2>
-                <p class="text-xs sm:text-sm text-slate-500 mt-0.5">
-                  Nhấn trực tiếp vào bất kỳ khu vực <span class="font-bold text-emerald-700">[P] Bãi đỗ xe</span> nào trên bản đồ để chuyển sang điều hành chi tiết 20 ô đỗ của khu vực đó.
-                </p>
-              </div>
-              <div class="flex items-center gap-2">
-                <button id="btn-campus-mode-digital" onclick="switchCampusMapDisplay('digital')" class="px-3 py-2 rounded-xl text-xs font-bold bg-[#005f69] text-white shadow-sm">
-                  🗺️ Bản đồ số tương tác 2D
-                </button>
-                <button id="btn-campus-mode-image" onclick="switchCampusMapDisplay('image')" class="px-3 py-2 rounded-xl text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200">
-                  🖼️ Bản vẽ Sơ đồ gốc UEH Mekong
-                </button>
-              </div>
-            </div>
-
-            <!-- Interactive 2D Campus Map Container -->
-            <div id="full-campus-map-digital" class="w-full">
-              <!-- Populated by JS renderCampusMapHTML() -->
-            </div>
-
-            <!-- Original Uploaded Image Container -->
-            <div id="full-campus-map-image" class="hidden w-full flex flex-col items-center">
-              <img src="assets/so-do-khuon-vien-goc.jpg" alt="Sơ đồ khuôn viên UEH Mekong" class="max-w-full rounded-2xl border-2 border-slate-300 shadow-lg" />
-              <p class="text-xs text-slate-500 mt-2 font-medium">Sơ đồ mặt bằng tổng thể các khu vực nhà xe tại Phân hiệu Vĩnh Long - UEH Mekong</p>
-            </div>
-
-            <!-- 7 Parking Zones Summary Cards -->
-            <div class="mt-6">
-              <h3 class="font-extrabold text-sm sm:text-base text-slate-800 mb-3 flex items-center gap-2">
-                <i data-lucide="parking-square" class="w-5 h-5 text-[#f26f21]"></i>
-                <span>Danh sách 7 khu vực bãi đỗ xe tại UEH Mekong</span>
-              </h3>
-              <div id="seven-zones-cards-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-                <!-- Populated by JS -->
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <!-- ===============================================================
-             TAB 3: BÃI ĐỖ XE (CHI TIẾT TẤT CẢ 7 BÃI & ĐIỀU PHỐI)
-             =============================================================== -->
-        <section id="tab-parking-lots" class="hidden space-y-4">
-          <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-6">
-            <div class="flex flex-wrap items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-100">
-              <div>
-                <h2 class="text-lg font-black text-slate-900 flex items-center gap-2">
-                  <i data-lucide="car" class="w-6 h-6 text-[#005f69]"></i>
-                  <span>Quản lý chi tiết 7 Bãi đỗ xe & Điều phối vị trí thông minh</span>
-                </h2>
-                <p class="text-xs text-slate-500">Theo dõi công suất thời gian thực, trạng thái mái che và điều phối xe khi mưa ngập.</p>
-              </div>
-              <button onclick="switchSidebarTab('overview')" class="bg-[#005f69] text-white text-xs font-bold px-3.5 py-2 rounded-xl flex items-center gap-1.5">
-                <i data-lucide="layout-dashboard" class="w-4 h-4"></i> Mở Bàn điều khiển 2D
-              </button>
-            </div>
-            <div id="all-zones-detailed-list" class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <!-- Populated by JS -->
-            </div>
-          </div>
-        </section>
-
-        <!-- ===============================================================
-             TAB 4: LỊCH SỬ LƯỢT XE & DATABASE 10 SINH VIÊN NHÓM
-             =============================================================== -->
-        <section id="tab-history" class="hidden space-y-4">
-          <!-- Database 10 Sinh viên mặc định + CRUD + CSV + JsBarcode -->
-          <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-6">
-            <div class="flex flex-wrap items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-100">
-              <div>
-                <h2 class="text-lg font-black text-slate-900 flex items-center gap-2">
-                  <i data-lucide="users" class="w-6 h-6 text-[#005f69]"></i>
-                  <span>Cơ sở dữ liệu Sinh viên Nhóm (10 Thành viên Mặc định & Mã vạch UEH)</span>
-                </h2>
-                <p class="text-xs text-slate-500">
-                  Dữ liệu được nhúng cố định trong mã nguồn kết hợp <code class="bg-slate-100 px-1.5 py-0.5 rounded">localStorage</code> để mọi thành viên mở trên điện thoại hay laptop đều có sẵn.
-                </p>
-              </div>
-              <div class="flex flex-wrap items-center gap-2">
-                <button onclick="openAddStudentModal()" class="bg-[#005f69] hover:bg-[#0d4a52] text-white text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-1.5 shadow-sm transition">
-                  <i data-lucide="user-plus" class="w-4 h-4"></i> Thêm sinh viên
-                </button>
-                <button onclick="exportStudentsCSV()" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-1.5 transition">
-                  <i data-lucide="file-down" class="w-4 h-4"></i> Xuất CSV
-                </button>
-                <label class="cursor-pointer bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-1.5 transition">
-                  <i data-lucide="file-up" class="w-4 h-4"></i> Nhập CSV
-                  <input type="file" accept=".csv" class="hidden" onchange="importStudentsCSV(event)" />
-                </label>
-                <button onclick="resetDefaultDatabase()" class="bg-orange-50 hover:bg-orange-100 text-[#f26f21] border border-orange-200 text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-1.5 transition">
-                  <i data-lucide="rotate-ccw" class="w-4 h-4"></i> Khôi phục 10 SV gốc
-                </button>
-              </div>
-            </div>
-
-            <div class="overflow-x-auto">
-              <table class="w-full text-left border-collapse">
-                <thead>
-                  <tr class="bg-slate-50 border-b border-slate-200 text-[11px] font-extrabold text-slate-600 uppercase">
-                    <th class="py-3 px-3">#</th>
-                    <th class="py-3 px-3">MSSV</th>
-                    <th class="py-3 px-3">Họ và tên</th>
-                    <th class="py-3 px-3">Ngày sinh</th>
-                    <th class="py-3 px-3">Biển số xe</th>
-                    <th class="py-3 px-3">Dòng xe / Loại</th>
-                    <th class="py-3 px-3">Ô đỗ</th>
-                    <th class="py-3 px-3">Trạng thái</th>
-                    <th class="py-3 px-3">Mã vạch UEH</th>
-                    <th class="py-3 px-3 text-right">Thao tác</th>
-                  </tr>
-                </thead>
-                <tbody id="student-db-tbody" class="divide-y divide-slate-100 text-xs">
-                  <!-- Populated by JS -->
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <!-- Full Check-in / Check-out Activity Log -->
-          <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-6">
-            <h3 class="text-base font-extrabold text-slate-900 mb-3 flex items-center gap-2">
-              <i data-lucide="scroll-text" class="w-5 h-5 text-[#005f69]"></i>
-              <span>Nhật ký chi tiết lượt xe Ra / Vào & Cảnh báo AI</span>
-            </h3>
-            <div class="overflow-x-auto">
-              <table class="w-full text-left border-collapse">
-                <thead>
-                  <tr class="bg-slate-50 border-b border-slate-200 text-[11px] font-bold text-slate-600 uppercase">
-                    <th class="py-2.5 px-3">Thời gian</th>
-                    <th class="py-2.5 px-3">Sinh viên / Đối tượng</th>
-                    <th class="py-2.5 px-3">MSSV</th>
-                    <th class="py-2.5 px-3">Biển số</th>
-                    <th class="py-2.5 px-3">Phương tiện</th>
-                    <th class="py-2.5 px-3">Vị trí ô</th>
-                    <th class="py-2.5 px-3">Nội dung</th>
-                    <th class="py-2.5 px-3 text-right">Trạng thái</th>
-                  </tr>
-                </thead>
-                <tbody id="full-history-tbody" class="divide-y divide-slate-100 text-xs">
-                  <!-- Populated by JS -->
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </section>
-
-        <!-- ===============================================================
-             TAB 5: CẢNH BÁO (TRUNG TÂM CẢNH BÁO THỜI TIẾT & BIỂN SỐ AI)
-             =============================================================== -->
-        <section id="tab-alerts" class="hidden space-y-4">
-          <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-6 space-y-4">
-            <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
-              <div>
-                <h2 class="text-lg font-black text-slate-900 flex items-center gap-2">
-                  <i data-lucide="shield-alert" class="w-6 h-6 text-red-600"></i>
-                  <span>Trung tâm Cảnh báo Thời tiết, Ngập nước & An ninh Biển số AI</span>
-                </h2>
-                <p class="text-xs text-slate-500">Kích hoạt kịch bản mô phỏng để kiểm tra đồng bộ giữa Màn hình Admin và App Sinh viên.</p>
-              </div>
-              <button onclick="toggleFloodSimulation()" class="bg-gradient-to-r from-[#f26f21] to-red-600 text-white text-xs font-extrabold px-4 py-2.5 rounded-xl shadow flex items-center gap-2">
-                <i data-lucide="cloud-lightning" class="w-4 h-4"></i>
-                <span>🌧️ Kích hoạt / Tắt Giả lập Mưa lớn & Ngập nước</span>
-              </button>
-            </div>
-            <div id="full-alerts-container" class="space-y-2.5">
-              <!-- Populated by JS -->
-            </div>
-          </div>
-        </section>
-
-        <!-- ===============================================================
-             TAB 6: THỐNG KÊ (BIỂU ĐỒ HIỆU SUẤT BÃI XE UEH MEKONG)
-             =============================================================== -->
-        <section id="tab-stats" class="hidden space-y-4">
-          <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-6 space-y-5">
-            <h2 class="text-lg font-black text-slate-900 flex items-center gap-2">
-              <i data-lucide="bar-chart-big" class="w-6 h-6 text-[#005f69]"></i>
-              <span>Báo cáo Thống kê & Phân tích Lưu lượng Bãi giữ xe UEH Mekong</span>
-            </h2>
-            <div id="stats-breakdown-container" class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <!-- Populated by JS -->
-            </div>
-          </div>
-        </section>
-
-        <!-- ===============================================================
-             TAB 7: CÀI ĐẶT HỆ THỐNG
-             =============================================================== -->
-        <section id="tab-settings" class="hidden space-y-4">
-          <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-6 max-w-3xl space-y-4">
-            <h2 class="text-lg font-black text-slate-900 flex items-center gap-2">
-              <i data-lucide="settings" class="w-6 h-6 text-[#005f69]"></i>
-              <span>Cài đặt Hệ thống UniSmartPark - UEH Mekong</span>
-            </h2>
-            <div class="space-y-3 text-sm">
-              <div class="flex items-center justify-between p-3.5 bg-slate-50 rounded-xl border border-slate-200">
-                <div>
-                  <div class="font-bold text-slate-800">Giọng đọc AI Tiếng Việt (SpeechSynthesis vi-VN)</div>
-                  <div class="text-xs text-slate-500">Tự động phát giọng đọc "XÁC NHẬN THÀNH CÔNG" hoặc "KHÔNG THỂ XÁC NHẬN" khi quét mã</div>
-                </div>
-                <input id="setting-voice-toggle" type="checkbox" checked onchange="toggleVoiceSetting(this.checked)" class="w-5 h-5 accent-[#005f69] cursor-pointer" />
-              </div>
-              <div class="flex items-center justify-between p-3.5 bg-slate-50 rounded-xl border border-slate-200">
-                <div>
-                  <div class="font-bold text-slate-800">Khôi phục dữ liệu mặc định (10 Sinh viên nhóm)</div>
-                  <div class="text-xs text-slate-500">Đặt lại toàn bộ danh sách 10 sinh viên và sơ đồ ô đỗ về trạng thái chuẩn ban đầu</div>
-                </div>
-                <button onclick="resetDefaultDatabase()" class="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 font-bold text-xs px-3.5 py-2 rounded-xl transition">
-                  Reset dữ liệu gốc
-                </button>
-              </div>
-            </div>
-          </div>
-        </section>
-
-      </main>
-
-      <!-- =================================================================
-           VIEW 2: STUDENT MOBILE APP (📱 APP SINH VIÊN UEH STUDENT)
-           ================================================================= -->
-      <main id="student-app-view" class="hidden flex-1 p-3 sm:p-6 bg-gradient-to-br from-[#0d3b42] via-[#005f69] to-slate-900 flex flex-col items-center justify-start overflow-y-auto">
-        <div class="w-full max-w-4xl flex flex-col lg:flex-row items-center lg:items-start justify-center gap-6 my-auto">
-
-          <!-- MOBILE PHONE SIMULATOR FRAME -->
-          <div class="w-full max-w-[400px] bg-[#f4f7f9] rounded-[36px] shadow-2xl border-[6px] border-slate-800 overflow-hidden flex flex-col">
-            <!-- Phone Status Bar -->
-            <div class="bg-[#005f69] text-white px-5 pt-3 pb-4">
-              <div class="flex items-center justify-between text-[11px] font-semibold text-teal-100 mb-2">
-                <span id="mobile-status-time">09:24</span>
-                <span class="bg-black/30 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider">UEH STUDENT APP</span>
-                <div class="flex items-center gap-1">
-                  <i data-lucide="wifi" class="w-3.5 h-3.5"></i>
-                  <i data-lucide="battery-charging" class="w-4 h-4"></i>
-                </div>
-              </div>
-
-              <!-- Student Account Selector inside App -->
-              <div class="flex items-center justify-between gap-2 mt-1">
-                <div>
-                  <div class="text-[11px] text-teal-200 font-medium">Xin chào sinh viên,</div>
-                  <h3 id="mobile-student-name" class="text-base font-extrabold text-white">Hồ Thị Mỹ Hường</h3>
-                </div>
-                <select id="mobile-student-switcher" onchange="onSwitchMobileStudent(this.value)" class="bg-white/15 hover:bg-white/25 text-white border border-white/25 rounded-xl text-xs font-bold px-2.5 py-1.5 focus:outline-none cursor-pointer max-w-[165px] truncate">
-                  <!-- Populated with 10 group students -->
-                </select>
-              </div>
-            </div>
-
-            <!-- Mobile App Body -->
-            <div class="p-4 space-y-3.5 flex-1 overflow-y-auto max-h-[680px]">
-
-              <!-- DYNAMIC FLOOD PUSH NOTIFICATION INSIDE STUDENT APP -->
-              <div id="mobile-flood-alert-card" class="hidden bg-gradient-to-br from-red-600 to-orange-600 text-white rounded-2xl p-3.5 shadow-lg border border-red-300 space-y-2 animate-pulse">
-                <div class="flex items-start gap-2.5">
-                  <i data-lucide="alert-triangle" class="w-6 h-6 text-yellow-300 shrink-0 mt-0.5"></i>
-                  <div class="text-xs leading-relaxed">
-                    <div class="font-extrabold text-sm text-yellow-200 uppercase">Cảnh báo mưa lớn & ngập nước!</div>
-                    <p class="mt-0.5">
-                      Cảnh báo mưa lớn & nguy cơ ngập tại bãi xe ngoài trời dọc bờ sông! Hệ thống đề xuất di chuyển phương tiện sang <strong>Khu A (Nhà xe có mái che)</strong>.
-                    </p>
-                  </div>
-                </div>
-                <button onclick="acceptFloodRelocationFromMobile()" class="w-full py-2.5 px-3 rounded-xl bg-white text-red-700 hover:bg-yellow-50 font-extrabold text-xs shadow flex items-center justify-center gap-1.5 transition active:scale-95">
-                  <i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-600"></i>
-                  <span>Đồng ý chuyển sang ô trống Khu A</span>
-                </button>
-              </div>
-
-              <!-- UEH STUDENT ELECTRONIC ID & BARCODE CARD (Scannable by Admin Camera!) -->
-              <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/90 space-y-3">
-                <div class="flex items-center justify-between border-b border-slate-100 pb-2">
-                  <div class="flex items-center gap-1.5">
-                    <span class="font-black text-sm text-[#005f69]">UEH</span>
-                    <span class="font-extrabold text-xs text-[#f26f21]">MEKONG</span>
-                    <span class="text-[11px] font-semibold text-slate-400">• Thẻ Sinh Viên Điện Tử</span>
-                  </div>
-                  <span id="mobile-parking-status-pill" class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-orange-100 text-[#f26f21]">
-                    Đặt trước
-                  </span>
-                </div>
-
-                <div class="flex items-center gap-3">
-                  <div id="mobile-avatar-box" class="w-14 h-14 rounded-2xl bg-[#005f69] text-white font-black text-lg flex items-center justify-center shadow-sm shrink-0">
-                    MH
-                  </div>
-                  <div class="text-xs space-y-0.5 min-w-0 flex-1">
-                    <div id="mobile-card-name" class="font-extrabold text-sm text-slate-900 truncate">Hồ Thị Mỹ Hường</div>
-                    <div class="text-slate-500">MSSV: <span id="mobile-card-mssv" class="font-mono font-bold text-slate-800">31251570240</span></div>
-                    <div class="text-slate-500">Ngày sinh: <span id="mobile-card-dob" class="font-semibold text-slate-700">08/03/2006</span></div>
-                    <div class="text-slate-500">Biển số: <span id="mobile-card-plate" class="font-mono font-bold text-[#005f69]">68A1-327.45</span> (<span id="mobile-card-model">VISION</span>)</div>
-                  </div>
-                </div>
-
-                <!-- Scannable CODE_128 Barcode rendered by JsBarcode -->
-                <div class="bg-slate-50 rounded-xl p-2.5 border border-slate-200 flex flex-col items-center">
-                  <svg id="mobile-student-barcode" class="w-full max-h-20"></svg>
-                  <span class="text-[10px] text-slate-500 font-medium mt-1">
-                    Đưa mã vạch này vào Camera cổng Admin để Check-in / Check-out
-                  </span>
-                </div>
-
-                <button onclick="triggerScanFromMobileApp()" class="w-full py-2.5 px-3 rounded-xl bg-[#005f69] hover:bg-[#0d4a52] text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition active:scale-95">
-                  <i data-lucide="scan-line" class="w-4 h-4"></i>
-                  <span>Quét thẻ này tại cổng (Check-in / Check-out ngay)</span>
-                </button>
-              </div>
-
-              <!-- CURRENT PARKING SLOT & QUICK RESERVATION IN STUDENT APP -->
-              <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/90 space-y-3">
-                <div class="flex items-center justify-between">
-                  <h4 class="font-extrabold text-xs uppercase tracking-wider text-slate-600 flex items-center gap-1.5">
-                    <i data-lucide="map-pin" class="w-4 h-4 text-[#f26f21]"></i>
-                    Vị trí đỗ xe của bạn
-                  </h4>
-                  <span id="mobile-current-slot-badge" class="text-base font-black text-[#005f69]">Ô A12</span>
-                </div>
-
-                <div class="bg-slate-50 rounded-xl p-3 border border-slate-200/80 text-xs space-y-1">
-                  <div class="flex justify-between">
-                    <span class="text-slate-500">Khu vực:</span>
-                    <span id="mobile-current-zone-name" class="font-bold text-slate-800">Bãi đỗ xe Khu A (Có mái che)</span>
-                  </div>
-                  <div class="flex justify-between">
-                    <span class="text-slate-500">Trạng thái:</span>
-                    <span id="mobile-current-status-text" class="font-bold text-[#f26f21]">Đã đặt chỗ trước</span>
-                  </div>
-                </div>
-
-                <!-- Quick Change / Book Empty Slot in Khu A from Student App -->
-                <div class="space-y-1.5 pt-1">
-                  <label class="block text-[11px] font-bold text-slate-600">
-                    Đặt trước / Đổi sang ô trống khác tại Khu A (Nhà xe có mái che):
-                  </label>
-                  <div class="flex gap-2">
-                    <select id="mobile-available-slots-select" class="flex-1 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold px-3 py-2 text-slate-800 focus:outline-none">
-                      <!-- Populated with empty slots -->
-                    </select>
-                    <button onclick="studentBookSlotFromApp()" class="bg-[#f26f21] hover:bg-orange-600 text-white font-bold text-xs px-3.5 py-2 rounded-xl shadow-sm transition shrink-0">
-                      Giữ chỗ
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-            </div>
-
-            <!-- Phone Bottom Navigation Bar -->
-            <div class="bg-white border-t border-slate-200 px-6 py-2.5 flex items-center justify-around text-[11px] font-bold text-slate-500">
-              <button class="flex flex-col items-center text-[#005f69]">
-                <i data-lucide="id-card" class="w-5 h-5"></i>
-                <span>Thẻ SV</span>
-              </button>
-              <button onclick="toggleFloodSimulation()" class="flex flex-col items-center hover:text-[#f26f21]">
-                <i data-lucide="cloud-rain" class="w-5 h-5"></i>
-                <span>Test Mưa ngập</span>
-              </button>
-              <button onclick="switchAppMode('admin')" class="flex flex-col items-center hover:text-[#005f69]">
-                <i data-lucide="monitor" class="w-5 h-5"></i>
-                <span>Về Admin</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- SIDE HELPER PANEL NEXT TO MOBILE APP (FOR GROUP DEMO) -->
-          <div class="w-full max-w-md bg-white/10 backdrop-blur-md text-white rounded-3xl p-5 border border-white/15 space-y-4">
-            <div class="flex items-center gap-2.5">
-              <div class="bg-[#f26f21] p-2.5 rounded-2xl">
-                <i data-lucide="sparkles" class="w-6 h-6 text-white"></i>
-              </div>
-              <div>
-                <h3 class="font-extrabold text-base">Hướng dẫn Thuyết trình & Demo Nhóm</h3>
-                <p class="text-xs text-teal-200">Đồng bộ thời gian thực với Màn hình Admin</p>
-              </div>
-            </div>
-
-            <div class="space-y-2.5 text-xs text-teal-50 leading-relaxed">
-              <div class="bg-black/25 p-3 rounded-2xl border border-white/10">
-                <div class="font-bold text-white mb-1">1. Quét mã vạch bằng 2 thiết bị (Điện thoại + Laptop):</div>
-                Mở <strong>📱 App Sinh viên</strong> này trên điện thoại của bạn, chọn tên mình trong danh sách 10 thành viên nhóm, sau đó đưa màn hình mã vạch vào Webcam Laptop đang mở <strong>🖥️ Màn hình Admin</strong> để quét thực tế!
-              </div>
-              <div class="bg-black/25 p-3 rounded-2xl border border-white/10">
-                <div class="font-bold text-yellow-300 mb-1">2. Demo Cảnh báo Mưa lớn & Điều phối sang Khu A:</div>
-                Nhấn nút bên dưới để kích hoạt mưa lớn ngập bãi ngoài trời dọc bờ sông. Thông báo đẩy sẽ bật lên ngay trên App Sinh viên để bạn bấm <strong>"Đồng ý chuyển sang ô trống Khu A"</strong>.
-              </div>
-            </div>
-
-            <div class="flex flex-col gap-2 pt-1">
-              <button onclick="toggleFloodSimulation()" class="w-full py-3 px-4 rounded-2xl bg-gradient-to-r from-[#f26f21] to-red-600 hover:opacity-95 text-white font-extrabold text-xs shadow-lg flex items-center justify-center gap-2 transition">
-                <i data-lucide="cloud-lightning" class="w-4 h-4"></i>
-                <span>🌧️ Kích hoạt Mưa lớn & Gửi Push Notification</span>
-              </button>
-              <button onclick="switchAppMode('admin')" class="w-full py-2.5 px-4 rounded-2xl bg-white/15 hover:bg-white/25 text-white font-bold text-xs flex items-center justify-center gap-2 transition">
-                <i data-lucide="arrow-left" class="w-4 h-4"></i>
-                <span>Quay lại 🖥️ Màn hình Admin</span>
-              </button>
-            </div>
-          </div>
-
-        </div>
-      </main>
-
-    </div>
+  <div class="w-full max-w-[480px] min-h-screen md:min-h-[calc(100vh-2rem)] md:my-4 bg-[#f4f7f9] md:rounded-[34px] md:shadow-2xl md:border-[5px] md:border-slate-800/90 flex flex-col relative overflow-hidden">
 
     <!-- ===================================================================
-         RIGHTMOST VERTICAL SIDEBAR (NỀN XANH ĐẬM #0d3b42 - CHUẨN HÌNH MẪU 2)
+         STICKY TOP MOBILE HEADER (LOGO + CLOUD SYNC + QUICK STUDENT SWITCHER)
          =================================================================== -->
-    <aside class="w-full lg:w-56 bg-[#0d3b42] text-white flex flex-col justify-between shrink-0 select-none z-20 shadow-xl">
-      <div>
-        <!-- Admin Profile Header -->
-        <div class="p-4 border-b border-white/10 flex items-center justify-between">
-          <div class="flex items-center gap-2.5">
-            <div class="w-9 h-9 rounded-full bg-white text-[#0d3b42] font-black text-xs flex items-center justify-center shadow">
-              AD
-            </div>
-            <div>
-              <div class="font-extrabold text-sm leading-tight">Admin</div>
-              <div class="text-[10px] text-teal-300 font-medium">Quản trị viên UEH</div>
+    <header class="bg-gradient-to-r from-[#005f69] to-[#0d4a52] text-white px-4 pt-3.5 pb-3.5 sticky top-0 z-30 shadow-md">
+      <div class="flex items-center justify-between gap-2">
+        <!-- Brand Logo -->
+        <div class="flex items-center gap-2.5">
+          <div class="bg-white rounded-xl px-2 py-1 flex flex-col items-center leading-none shadow-sm">
+            <span class="text-sm font-black text-[#005f69] tracking-tight">UEH</span>
+            <span class="text-[8px] font-extrabold text-[#f26f21] tracking-wider">MEKONG</span>
+          </div>
+          <div>
+            <div class="font-extrabold text-sm leading-tight tracking-tight">UniSmartPark</div>
+            <div id="cloud-sync-badge" class="inline-flex items-center gap-1 text-[10px] font-bold text-teal-100 mt-0.5">
+              <span id="cloud-sync-dot" class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+              <span id="cloud-sync-text">Đang kết nối...</span>
             </div>
           </div>
-          <i data-lucide="chevron-down" class="w-4 h-4 text-teal-200"></i>
         </div>
 
-        <!-- Sidebar Navigation Links -->
-        <nav class="p-2.5 flex lg:flex-col gap-1 overflow-x-auto lg:overflow-visible">
-          <button id="nav-btn-overview" onclick="switchSidebarTab('overview')" class="sidebar-nav-btn w-full px-3.5 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center gap-3 transition bg-[#005f69] text-white shadow-sm shrink-0">
-            <i data-lucide="home" class="w-4 h-4 shrink-0"></i>
-            <span>Tổng quan</span>
-          </button>
-
-          <button id="nav-btn-campus-map" onclick="switchSidebarTab('campus-map')" class="sidebar-nav-btn w-full px-3.5 py-2.5 rounded-xl font-semibold text-xs sm:text-sm flex items-center gap-3 transition text-teal-100/80 hover:bg-white/10 hover:text-white shrink-0">
-            <i data-lucide="map" class="w-4 h-4 shrink-0"></i>
-            <span>Sơ đồ khuôn viên</span>
-          </button>
-
-          <button id="nav-btn-parking-lots" onclick="switchSidebarTab('parking-lots')" class="sidebar-nav-btn w-full px-3.5 py-2.5 rounded-xl font-semibold text-xs sm:text-sm flex items-center gap-3 transition text-teal-100/80 hover:bg-white/10 hover:text-white shrink-0">
-            <i data-lucide="bike" class="w-4 h-4 shrink-0"></i>
-            <span>Bãi đỗ xe</span>
-          </button>
-
-          <button id="nav-btn-history" onclick="switchSidebarTab('history')" class="sidebar-nav-btn w-full px-3.5 py-2.5 rounded-xl font-semibold text-xs sm:text-sm flex items-center justify-between transition text-teal-100/80 hover:bg-white/10 hover:text-white shrink-0">
-            <span class="flex items-center gap-3">
-              <i data-lucide="clock" class="w-4 h-4 shrink-0"></i>
-              <span>Lịch sử lượt xe</span>
-            </span>
-            <span class="bg-[#f26f21] text-white text-[10px] font-extrabold px-1.5 py-0.5 rounded-md">10 SV</span>
-          </button>
-
-          <button id="nav-btn-alerts" onclick="switchSidebarTab('alerts')" class="sidebar-nav-btn w-full px-3.5 py-2.5 rounded-xl font-semibold text-xs sm:text-sm flex items-center gap-3 transition text-teal-100/80 hover:bg-white/10 hover:text-white shrink-0">
-            <i data-lucide="alert-triangle" class="w-4 h-4 shrink-0"></i>
-            <span>Cảnh báo</span>
-          </button>
-
-          <button id="nav-btn-stats" onclick="switchSidebarTab('stats')" class="sidebar-nav-btn w-full px-3.5 py-2.5 rounded-xl font-semibold text-xs sm:text-sm flex items-center gap-3 transition text-teal-100/80 hover:bg-white/10 hover:text-white shrink-0">
-            <i data-lucide="bar-chart-2" class="w-4 h-4 shrink-0"></i>
-            <span>Thống kê</span>
-          </button>
-
-          <button id="nav-btn-settings" onclick="switchSidebarTab('settings')" class="sidebar-nav-btn w-full px-3.5 py-2.5 rounded-xl font-semibold text-xs sm:text-sm flex items-center gap-3 transition text-teal-100/80 hover:bg-white/10 hover:text-white shrink-0">
-            <i data-lucide="settings" class="w-4 h-4 shrink-0"></i>
-            <span>Cài đặt</span>
-          </button>
-        </nav>
-      </div>
-
-      <!-- Bottom Building Wireframe Art & Logout (Matching Image 2) -->
-      <div class="hidden lg:flex flex-col justify-end pt-6">
-        <div class="px-4 opacity-25 pointer-events-none">
-          <svg viewBox="0 0 200 160" class="w-full h-32 stroke-teal-200 fill-none" stroke-width="1.5">
-            <polygon points="30,150 30,45 95,20 95,150" />
-            <polygon points="95,20 165,45 165,150 95,150" />
-            <line x1="45" y1="60" x2="80" y2="48" />
-            <line x1="45" y1="80" x2="80" y2="68" />
-            <line x1="45" y1="100" x2="80" y2="88" />
-            <line x1="45" y1="120" x2="80" y2="108" />
-            <line x1="110" y1="48" x2="150" y2="60" />
-            <line x1="110" y1="68" x2="150" y2="80" />
-            <line x1="110" y1="88" x2="150" y2="100" />
-            <line x1="110" y1="108" x2="150" y2="120" />
-            <line x1="10" y1="150" x2="190" y2="150" />
-          </svg>
-        </div>
-
-        <div class="p-3 border-t border-white/10">
-          <button onclick="handleLogoutClick()" class="w-full px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-teal-100/80 hover:bg-white/10 hover:text-white flex items-center gap-3 transition">
-            <i data-lucide="log-out" class="w-4 h-4"></i>
-            <span>Đăng xuất</span>
-          </button>
-        </div>
-      </div>
-    </aside>
-
-  </div>
-
-  <!-- =====================================================================
-       MODAL 1: ĐẶT CHỖ TRƯỚC TẠI Ô ĐỖ (RESERVE SLOT MODAL)
-       ===================================================================== -->
-  <div id="modal-reserve-slot" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl max-w-md w-full p-5 shadow-2xl border border-slate-200 space-y-4 animate-slide-up">
-      <div class="flex items-center justify-between border-b border-slate-100 pb-3">
-        <h3 class="font-extrabold text-base text-slate-900 flex items-center gap-2">
-          <i data-lucide="calendar-plus" class="w-5 h-5 text-[#005f69]"></i>
-          <span>Đặt chỗ trước ô đỗ <span id="reserve-modal-slot-code" class="text-[#f26f21]">A01</span></span>
-        </h3>
-        <button onclick="closeReserveSlotModal()" class="text-slate-400 hover:text-slate-700">
-          <i data-lucide="x" class="w-5 h-5"></i>
-        </button>
-      </div>
-
-      <div class="space-y-3 text-xs">
-        <div>
-          <label class="block font-bold text-slate-700 mb-1">Chọn sinh viên trong nhóm (hoặc nhập mới):</label>
-          <select id="reserve-modal-student-select" onchange="onChangeReserveStudentSelect(this.value)" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-semibold text-slate-800">
-            <!-- Populated by JS -->
+        <!-- Quick Student Account Selector (10 Group Members) -->
+        <div class="flex flex-col items-end max-w-[54%]">
+          <span class="text-[9px] font-bold uppercase tracking-wider text-teal-200 mb-0.5">Tài khoản Sinh viên</span>
+          <select id="mobile-student-switcher" onchange="onSwitchMobileStudent(this.value)" class="w-full bg-white/15 hover:bg-white/25 text-white border border-white/30 rounded-xl text-xs font-extrabold px-2.5 py-1.5 focus:outline-none cursor-pointer truncate">
+            <!-- Populated with 10 group students -->
           </select>
         </div>
-        <div class="grid grid-cols-2 gap-2">
-          <div>
-            <label class="block font-bold text-slate-700 mb-1">MSSV:</label>
-            <input id="reserve-modal-mssv" type="text" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-mono font-bold" />
+      </div>
+    </header>
+
+    <!-- ===================================================================
+         SCROLLABLE CONTENT AREA (4 MOBILE APP TABS)
+         =================================================================== -->
+    <main class="flex-1 overflow-y-auto px-4 pt-4 pb-24 space-y-4">
+
+      <!-- *****************************************************************
+           TAB 1: 📷 QUÉT MÃ CỔNG (DEFAULT TAB WHEN OPENING /)
+           ***************************************************************** -->
+      <section id="student-tab-scan" class="space-y-4">
+
+        <!-- Active Student Parking Summary Strip -->
+        <div class="bg-white rounded-2xl p-3.5 shadow-sm border border-slate-200/80 flex items-center justify-between gap-3">
+          <div class="flex items-center gap-3 min-w-0">
+            <div id="student-home-avatar" class="w-11 h-11 rounded-2xl bg-[#005f69] text-white font-black text-sm flex items-center justify-center shrink-0 shadow-sm">
+              MH
+            </div>
+            <div class="min-w-0">
+              <div id="student-home-name" class="font-extrabold text-sm text-slate-900 truncate">Hồ Thị Mỹ Hường</div>
+              <div class="text-[11px] font-semibold text-slate-500">
+                <span id="student-home-plate" class="font-mono font-bold text-[#005f69]">68A1-327.45</span> • <span id="student-home-model">VISION</span>
+              </div>
+            </div>
           </div>
-          <div>
-            <label class="block font-bold text-slate-700 mb-1">Biển số xe đăng ký:</label>
-            <input id="reserve-modal-plate" type="text" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-mono font-bold text-[#005f69]" />
-          </div>
-        </div>
-        <div>
-          <label class="block font-bold text-slate-700 mb-1">Họ và tên sinh viên:</label>
-          <input id="reserve-modal-name" type="text" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-bold" />
-        </div>
-      </div>
-
-      <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-        <button onclick="closeReserveSlotModal()" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs">
-          Hủy
-        </button>
-        <button onclick="confirmReserveSlot()" class="px-4 py-2 rounded-xl bg-[#005f69] hover:bg-[#0d4a52] text-white font-bold text-xs shadow-sm">
-          Xác nhận đặt trước
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <!-- =====================================================================
-       MODAL 2: XEM / IN MÃ VẠCH SINH VIÊN (JSBARCODE MODAL)
-       ===================================================================== -->
-  <div id="modal-barcode-viewer" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl max-w-md w-full p-5 shadow-2xl border border-slate-200 space-y-4 animate-slide-up text-center">
-      <div class="flex items-center justify-between border-b border-slate-100 pb-3">
-        <div class="flex items-center gap-2">
-          <span class="font-black text-base text-[#005f69]">UEH</span>
-          <span class="font-extrabold text-xs text-[#f26f21]">MEKONG</span>
-          <span class="text-xs font-bold text-slate-500">• Mã vạch Thẻ Sinh Viên</span>
-        </div>
-        <button onclick="closeBarcodeModal()" class="text-slate-400 hover:text-slate-700">
-          <i data-lucide="x" class="w-5 h-5"></i>
-        </button>
-      </div>
-
-      <div class="bg-slate-50 rounded-2xl p-4 border border-slate-200 space-y-2">
-        <div id="barcode-modal-name" class="text-base font-black text-slate-900">Nguyễn Đức Trí</div>
-        <div id="barcode-modal-info" class="text-xs font-semibold text-slate-600">MSSV: 31251570287 • Biển số: 62AU-006.41 (SH mode)</div>
-        <div class="bg-white p-3 rounded-xl border border-slate-200 flex justify-center">
-          <svg id="barcode-modal-svg" class="w-full max-w-[300px]"></svg>
-        </div>
-        <p class="text-[11px] text-slate-500">
-          Định dạng chuẩn <code class="font-bold">CODE_128</code> tương thích 100% với Camera quét tại cổng và App UEH Student.
-        </p>
-      </div>
-
-      <div class="flex flex-wrap items-center justify-center gap-2">
-        <button onclick="scanCurrentModalStudentNow()" class="bg-[#005f69] hover:bg-[#0d4a52] text-white font-bold text-xs px-4 py-2.5 rounded-xl flex items-center gap-1.5 shadow-sm">
-          <i data-lucide="scan-line" class="w-4 h-4"></i> Quét mã SV này ngay
-        </button>
-        <button onclick="downloadModalBarcodePNG()" class="bg-orange-50 hover:bg-orange-100 text-[#f26f21] border border-orange-200 font-bold text-xs px-4 py-2.5 rounded-xl flex items-center gap-1.5">
-          <i data-lucide="download" class="w-4 h-4"></i> Tải ảnh Mã vạch PNG
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <!-- =====================================================================
-       MODAL 3: THÊM / SỬA SINH VIÊN TRONG DATABASE
-       ===================================================================== -->
-  <div id="modal-student-form" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl max-w-md w-full p-5 shadow-2xl border border-slate-200 space-y-4 animate-slide-up">
-      <div class="flex items-center justify-between border-b border-slate-100 pb-3">
-        <h3 id="student-form-title" class="font-extrabold text-base text-slate-900">Thêm / Cập nhật Sinh viên</h3>
-        <button onclick="closeStudentFormModal()" class="text-slate-400 hover:text-slate-700">
-          <i data-lucide="x" class="w-5 h-5"></i>
-        </button>
-      </div>
-
-      <div class="space-y-3 text-xs">
-        <input id="form-student-edit-index" type="hidden" value="-1" />
-        <div class="grid grid-cols-2 gap-2.5">
-          <div>
-            <label class="block font-bold text-slate-700 mb-1">MSSV (11 số):</label>
-            <input id="form-student-mssv" type="text" placeholder="31251570..." class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-mono font-bold" />
-          </div>
-          <div>
-            <label class="block font-bold text-slate-700 mb-1">Ngày sinh:</label>
-            <input id="form-student-dob" type="text" placeholder="DD/MM/YYYY" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-semibold" />
+          <div class="text-right shrink-0">
+            <div id="student-home-slot-badge" class="text-sm font-black text-[#f26f21]">Ô A12</div>
+            <div id="student-home-status-badge" class="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-orange-100 text-[#f26f21]">Đặt trước</div>
           </div>
         </div>
-        <div>
-          <label class="block font-bold text-slate-700 mb-1">Họ và tên:</label>
-          <input id="form-student-name" type="text" placeholder="Nhập họ tên sinh viên..." class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-bold" />
-        </div>
-        <div class="grid grid-cols-2 gap-2.5">
-          <div>
-            <label class="block font-bold text-slate-700 mb-1">Biển số xe:</label>
-            <input id="form-student-plate" type="text" placeholder="62AU-006.41" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-mono font-bold text-[#005f69]" />
+
+        <!-- Scanner Card -->
+        <div class="bg-white rounded-3xl p-4 shadow-sm border border-slate-200/80 space-y-3.5">
+          <div class="flex items-center justify-between">
+            <h2 class="font-extrabold text-base text-slate-900 flex items-center gap-2">
+              <i data-lucide="scan-line" class="w-5 h-5 text-[#005f69]"></i>
+              <span>Quét mã Check-in / Check-out</span>
+            </h2>
+            <span id="camera-active-indicator" class="text-[11px] font-bold text-slate-400">Sẵn sàng</span>
           </div>
-          <div>
-            <label class="block font-bold text-slate-700 mb-1">Dòng xe:</label>
-            <input id="form-student-model" type="text" placeholder="SH mode, VISION..." class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-semibold" />
+
+          <!-- Large Viewfinder Box -->
+          <div class="scanner-frame rounded-2xl h-64 w-full flex flex-col items-center justify-center relative border-2 border-slate-200 shadow-inner">
+            <div class="scanner-corner tl"></div>
+            <div class="scanner-corner tr"></div>
+            <div class="scanner-corner bl"></div>
+            <div class="scanner-corner br"></div>
+            <div class="scanner-laser"></div>
+
+            <!-- Live Camera Feed -->
+            <div id="qr-reader" class="w-full h-full hidden"></div>
+
+            <!-- Idle Preview when Camera is off -->
+            <div id="scanner-idle-preview" class="flex flex-col items-center justify-center text-center p-4 z-10 w-full h-full bg-gradient-to-b from-slate-800/90 to-slate-900/95">
+              <div class="w-16 h-16 rounded-2xl bg-teal-500/20 border border-teal-400/40 flex items-center justify-center text-teal-300 mb-3">
+                <i data-lucide="camera" class="w-9 h-9"></i>
+              </div>
+              <div class="text-white font-extrabold text-sm">Đưa mã vạch thẻ UEH vào khung ngắm</div>
+              <p class="text-[11px] text-teal-200/90 mt-1 max-w-[240px]">
+                Camera tự động khóa ngay khi nhận diện mã để hiển thị vị trí đỗ xe của bạn.
+              </p>
+            </div>
           </div>
-        </div>
-        <div class="grid grid-cols-3 gap-2">
-          <div>
-            <label class="block font-bold text-slate-700 mb-1">Loại xe:</label>
-            <select id="form-student-type" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2 font-semibold">
-              <option value="Xe máy">Xe máy</option>
-              <option value="Ô tô">Ô tô</option>
+
+          <!-- Scan Status Banner -->
+          <div id="scan-status-banner" class="hidden flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 font-extrabold text-xs">
+            <i data-lucide="check-circle-2" class="w-4 h-4 shrink-0"></i>
+            <span id="scan-status-text">Sẵn sàng quét mã</span>
+          </div>
+
+          <!-- BIG PRIMARY BUTTON: [📷 Mở Camera Quét Mã Vạch] -->
+          <button id="btn-start-smart-cam" onclick="startSmartCameraScanner()" class="w-full py-4 px-5 rounded-2xl bg-gradient-to-r from-[#005f69] to-[#0d4a52] hover:opacity-95 text-white font-black text-base shadow-lg flex items-center justify-center gap-2.5 transition active:scale-[0.98]">
+            <span>📷 Mở Camera Quét Mã Vạch</span>
+          </button>
+
+          <!-- Secondary Controls: Switch Camera, Stop Camera, Capture Barcode Photo -->
+          <div class="grid grid-cols-2 gap-2.5">
+            <button id="btn-switch-cam-lens" onclick="switchCameraLens()" class="py-3 px-3 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs flex items-center justify-center gap-1.5 border border-slate-200 transition active:scale-95">
+              <span>🔄 Đổi Cam Trước/Sau</span>
+            </button>
+
+            <label onclick="unlockAudioAndSpeech()" class="cursor-pointer py-3 px-3 rounded-2xl bg-orange-50 hover:bg-orange-100 text-[#f26f21] font-bold text-xs flex items-center justify-center gap-1.5 border border-orange-200 transition active:scale-95">
+              <span>📸 Chụp ảnh mã vạch</span>
+              <input id="barcode-file-input" type="file" accept="image/*" capture="environment" class="hidden" onchange="handleBarcodeImageUpload(event)" />
+            </label>
+          </div>
+
+          <!-- Camera Device Selector + Stop Button -->
+          <div class="flex items-center gap-2">
+            <select id="camera-device-select" onchange="onSelectCameraDevice(this.value)" class="flex-1 bg-slate-50 border border-slate-200 rounded-xl text-xs px-3 py-2 font-semibold text-slate-700 focus:outline-none focus:border-[#005f69]">
+              <option value="">-- Chọn ống kính Camera --</option>
             </select>
-          </div>
-          <div>
-            <label class="block font-bold text-slate-700 mb-1">Ô đỗ:</label>
-            <input id="form-student-slot" type="text" placeholder="A02" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-bold uppercase" />
-          </div>
-          <div>
-            <label class="block font-bold text-slate-700 mb-1">Trạng thái:</label>
-            <select id="form-student-status" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-2 py-2 font-semibold">
-              <option value="Đang sử dụng">Đang sử dụng</option>
-              <option value="Đặt trước">Đặt trước</option>
-              <option value="Đã lấy xe">Đã lấy xe</option>
-            </select>
+            <button id="btn-stop-camera" onclick="stopCameraScanner()" class="hidden bg-red-100 hover:bg-red-200 text-red-700 text-xs font-extrabold px-3.5 py-2 rounded-xl transition shrink-0">
+              ⏹️ Tắt Cam
+            </button>
           </div>
         </div>
-      </div>
 
-      <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-        <button onclick="closeStudentFormModal()" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs">
-          Hủy
-        </button>
-        <button onclick="saveStudentForm()" class="px-4 py-2 rounded-xl bg-[#005f69] hover:bg-[#0d4a52] text-white font-bold text-xs shadow-sm">
-          Lưu thông tin
-        </button>
-      </div>
-    </div>
+        <!-- Quick 1-Tap Check-in / Check-out Helper for Fast Testing -->
+        <div class="bg-white rounded-2xl p-3.5 shadow-sm border border-slate-200/80 space-y-2.5">
+          <div class="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider">⚡ Thao tác nhanh (Quét trực tiếp thẻ đang chọn)</div>
+          <div class="grid grid-cols-3 gap-2">
+            <button onclick="triggerScanFromMobileApp()" class="col-span-2 py-3 px-3 rounded-xl bg-[#f26f21] hover:bg-orange-600 text-white font-extrabold text-xs shadow-sm flex items-center justify-center gap-1.5 transition active:scale-95">
+              <i data-lucide="zap" class="w-4 h-4"></i>
+              <span>Quét thẻ của tôi ngay</span>
+            </button>
+            <button onclick="simulateStrangerScan()" class="py-3 px-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 font-bold text-xs transition active:scale-95">
+              Test mã lạ
+            </button>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- *****************************************************************
+           TAB 2: 🅿️ BÃI XE & ĐẶT CHỖ (7 BÃI XE UEH MEKONG + ĐẶT CHỖ 1 CHẠM)
+           ***************************************************************** -->
+      <section id="student-tab-parking" class="hidden space-y-4">
+        <div class="bg-white rounded-3xl p-4 shadow-sm border border-slate-200/80 space-y-3.5">
+          <div>
+            <h2 class="font-black text-base text-slate-900 flex items-center gap-2">
+              <i data-lucide="parking-square" class="w-5 h-5 text-[#005f69]"></i>
+              <span>Chọn bãi đỗ xe & Đặt chỗ trước</span>
+            </h2>
+            <p class="text-xs text-slate-500 mt-0.5">Chọn 1 trong 7 bãi xe UEH Mekong, sau đó chạm vào ô màu xanh lá (Trống) để giữ chỗ.</p>
+          </div>
+
+          <!-- Zone Dropdown Selector -->
+          <select id="student-zone-select" onchange="onStudentSelectZone(this.value)" class="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl px-3.5 py-3 text-xs sm:text-sm font-extrabold text-slate-800 focus:outline-none focus:border-[#005f69]">
+            <!-- Populated with 7 UEH Mekong zones -->
+          </select>
+
+          <!-- Zone Summary Bar -->
+          <div class="flex items-center justify-between bg-teal-50/80 border border-teal-200 rounded-2xl px-3.5 py-2.5">
+            <div class="flex items-center gap-2">
+              <span id="student-zone-roof-badge" class="px-2.5 py-1 rounded-xl text-[11px] font-extrabold bg-[#005f69] text-white">Có mái che</span>
+              <span id="student-zone-avail-count" class="text-xs font-extrabold text-emerald-700">Còn 9/20 ô trống</span>
+            </div>
+            <span class="text-[11px] font-bold text-slate-500">Thời gian thực</span>
+          </div>
+
+          <!-- Compact Mobile 2D 20-Slot Grid -->
+          <div id="student-parking-grid" class="grid grid-cols-4 sm:grid-cols-5 gap-2 p-3 rounded-2xl bg-slate-100 border border-slate-200">
+            <!-- Rendered by JS -->
+          </div>
+
+          <!-- Compact Legend -->
+          <div class="flex flex-wrap items-center justify-center gap-3 text-[11px] font-bold text-slate-600">
+            <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>Trống</span>
+            <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-blue-600"></span>Đang sử dụng</span>
+            <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-[#f26f21]"></span>Đặt trước</span>
+            <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-full bg-red-500"></span>Ngập / Khóa</span>
+          </div>
+
+          <!-- Sticky Booking CTA Box when a Green (Free) slot is tapped -->
+          <div id="student-booking-bar" class="hidden bg-gradient-to-r from-[#fff3eb] to-orange-50 border-2 border-[#f26f21] rounded-2xl p-3.5 space-y-2.5 animate-slide-up">
+            <div class="flex items-center justify-between">
+              <div>
+                <div class="text-[11px] font-bold text-slate-500 uppercase">Vị trí bạn đang chọn</div>
+                <div id="student-selected-slot-title" class="text-base font-black text-[#005f69]">Ô A01 • Bãi đỗ xe Khu A</div>
+              </div>
+              <span class="px-2.5 py-1 rounded-xl bg-emerald-100 text-emerald-700 text-xs font-extrabold">Đang trống</span>
+            </div>
+            <button onclick="studentBookSelectedSlotOnMap()" class="w-full py-3.5 px-4 rounded-2xl bg-[#f26f21] hover:bg-orange-600 text-white font-black text-sm shadow-md flex items-center justify-center gap-2 transition active:scale-95">
+              <i data-lucide="calendar-check-2" class="w-5 h-5"></i>
+              <span>Đặt chỗ trước ngay</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- *****************************************************************
+           TAB 3: 🪪 THẺ UEH (MÃ VẠCH CODE-128 THỰC TẾ)
+           ***************************************************************** -->
+      <section id="student-tab-card" class="hidden space-y-4">
+        <div class="bg-white rounded-3xl shadow-md border border-slate-200/90 overflow-hidden">
+          <!-- Card Header -->
+          <div class="bg-gradient-to-r from-[#005f69] to-[#0d3b42] text-white px-5 py-4 flex items-center justify-between">
+            <div>
+              <div class="flex items-center gap-1.5">
+                <span class="font-black text-xl tracking-tight">UEH</span>
+                <span class="font-extrabold text-xs bg-[#f26f21] px-2 py-0.5 rounded-md tracking-wider">MEKONG</span>
+              </div>
+              <div class="text-[11px] text-teal-200 font-medium mt-0.5">Thẻ Sinh Viên Điện Tử • UniSmartPark</div>
+            </div>
+            <span id="mobile-parking-status-pill" class="px-3 py-1 rounded-full text-xs font-extrabold bg-orange-100 text-[#f26f21] shadow-sm">
+              Đặt trước
+            </span>
+          </div>
+
+          <!-- Card Body -->
+          <div class="p-5 space-y-4">
+            <div class="flex items-center gap-4">
+              <div id="mobile-avatar-box" class="w-16 h-16 rounded-2xl bg-[#005f69] text-white font-black text-xl flex items-center justify-center shadow-md shrink-0">
+                MH
+              </div>
+              <div class="min-w-0 flex-1 space-y-1">
+                <h3 id="mobile-card-name" class="font-black text-lg text-slate-900 leading-tight truncate">Hồ Thị Mỹ Hường</h3>
+                <div class="text-xs font-semibold text-slate-600">MSSV: <span id="mobile-card-mssv" class="font-mono font-extrabold text-slate-900">31251570240</span></div>
+                <div class="text-xs font-semibold text-slate-600">Ngày sinh: <span id="mobile-card-dob" class="font-bold text-slate-800">08/03/2006</span></div>
+              </div>
+            </div>
+
+            <!-- Vehicle & Current Parking Location Details -->
+            <div class="grid grid-cols-2 gap-2.5 bg-slate-50 rounded-2xl p-3.5 border border-slate-200/80 text-xs">
+              <div>
+                <div class="text-[10px] font-bold uppercase text-slate-400">Biển số & Dòng xe</div>
+                <div id="mobile-card-plate" class="font-mono font-black text-sm text-[#005f69] mt-0.5">68A1-327.45</div>
+                <div id="mobile-card-model" class="font-bold text-slate-600">VISION</div>
+              </div>
+              <div class="text-right">
+                <div class="text-[10px] font-bold uppercase text-slate-400">Vị trí đỗ hiện tại</div>
+                <div id="mobile-current-slot-badge" class="font-black text-lg text-[#f26f21] mt-0.5">Ô A12</div>
+                <div id="mobile-current-status-text" class="text-[11px] font-bold text-slate-600 truncate">Đã giữ chỗ trước</div>
+              </div>
+            </div>
+
+            <!-- Crisp CODE_128 Barcode rendered with JsBarcode -->
+            <div class="bg-white rounded-2xl p-4 border-2 border-dashed border-slate-300 flex flex-col items-center">
+              <svg id="mobile-student-barcode" class="w-full max-w-[300px]"></svg>
+              <span class="text-[11px] text-slate-500 font-semibold mt-1 text-center">
+                Đưa mã vạch Code-128 này vào Camera cổng hoặc thiết bị khác để quét trực tiếp
+              </span>
+            </div>
+
+            <!-- Quick Actions on Card Tab -->
+            <div class="grid grid-cols-2 gap-2.5">
+              <button onclick="downloadActiveMobileStudentBarcodePNG()" class="py-3 px-3 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs flex items-center justify-center gap-1.5 transition">
+                <i data-lucide="download" class="w-4 h-4 text-[#005f69]"></i>
+                <span>Lưu ảnh Mã vạch</span>
+              </button>
+              <button onclick="switchStudentTab('scan')" class="py-3 px-3 rounded-2xl bg-[#005f69] hover:bg-[#0d4a52] text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition">
+                <i data-lucide="camera" class="w-4 h-4"></i>
+                <span>Mở Camera Quét</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- *****************************************************************
+           TAB 4: 🔔 THÔNG BÁO (CẢNH BÁO MƯA NGẬP & LỊCH SỬ CÁ NHÂN)
+           ***************************************************************** -->
+      <section id="student-tab-alerts" class="hidden space-y-4">
+        <!-- Active Flood Alert Banner inside Tab 4 (visible whenever flood mode is ON) -->
+        <div id="mobile-flood-alert-card" class="hidden bg-gradient-to-br from-red-600 to-orange-600 text-white rounded-3xl p-4 shadow-lg border-2 border-red-300 space-y-3">
+          <div class="flex items-start gap-3">
+            <div class="bg-white/20 p-2 rounded-xl shrink-0 animate-bounce">
+              <i data-lucide="cloud-lightning" class="w-6 h-6 text-yellow-200"></i>
+            </div>
+            <div>
+              <div class="font-black text-sm uppercase text-yellow-200">⚠️ CẢNH BÁO MƯA LỚN & NGẬP NƯỚC!</div>
+              <p class="text-xs text-red-50 mt-1 leading-relaxed">
+                Khu vực bãi đỗ xe ngoài trời dọc bờ sông đang có nguy cơ ngập nước cao. Hệ thống đề xuất chuyển phương tiện sang <strong>Khu A (Nhà xe có mái che)</strong> ngay bây giờ.
+              </p>
+            </div>
+          </div>
+          <button onclick="acceptFloodRelocationFromMobile()" class="w-full py-3.5 px-4 rounded-2xl bg-white text-red-700 hover:bg-yellow-50 font-black text-sm shadow-md flex items-center justify-center gap-2 transition active:scale-95">
+            <i data-lucide="shield-check" class="w-5 h-5 text-emerald-600"></i>
+            <span>Chuyển xe sang Khu A có mái che</span>
+          </button>
+        </div>
+
+        <!-- System & Personal Notifications List -->
+        <div class="bg-white rounded-3xl p-4 shadow-sm border border-slate-200/80 space-y-3">
+          <h2 class="font-black text-base text-slate-900 flex items-center gap-2">
+            <i data-lucide="bell-ring" class="w-5 h-5 text-[#f26f21]"></i>
+            <span>Thông báo từ Bãi giữ xe UEH Mekong</span>
+          </h2>
+          <div id="student-notifications-list" class="space-y-2.5">
+            <!-- Rendered by JS -->
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- ===================================================================
+         FIXED 4-TAB BOTTOM NAVIGATION BAR (MOBILE FIRST)
+         =================================================================== -->
+    <nav class="bg-white border-t border-slate-200 px-2 py-2 grid grid-cols-4 gap-1 sticky bottom-0 z-30 shadow-[0_-4px_15px_rgba(15,23,42,0.06)]">
+      <button id="student-nav-scan" onclick="switchStudentTab('scan')" class="flex flex-col items-center justify-center py-1.5 px-1 rounded-2xl bg-teal-50 text-[#005f69] font-extrabold text-[11px] transition">
+        <i data-lucide="scan-line" class="w-5 h-5 mb-0.5"></i>
+        <span>Quét Mã</span>
+      </button>
+
+      <button id="student-nav-parking" onclick="switchStudentTab('parking')" class="flex flex-col items-center justify-center py-1.5 px-1 rounded-2xl text-slate-500 hover:bg-slate-50 font-bold text-[11px] transition">
+        <i data-lucide="parking-square" class="w-5 h-5 mb-0.5"></i>
+        <span>Bãi Xe</span>
+      </button>
+
+      <button id="student-nav-card" onclick="switchStudentTab('card')" class="flex flex-col items-center justify-center py-1.5 px-1 rounded-2xl text-slate-500 hover:bg-slate-50 font-bold text-[11px] transition">
+        <i data-lucide="id-card" class="w-5 h-5 mb-0.5"></i>
+        <span>Thẻ UEH</span>
+      </button>
+
+      <button id="student-nav-alerts" onclick="switchStudentTab('alerts')" class="relative flex flex-col items-center justify-center py-1.5 px-1 rounded-2xl text-slate-500 hover:bg-slate-50 font-bold text-[11px] transition">
+        <i data-lucide="bell" class="w-5 h-5 mb-0.5"></i>
+        <span>Thông Báo</span>
+        <span id="mobile-notif-tab-badge" class="hidden absolute top-1 right-4 w-2.5 h-2.5 rounded-full bg-red-500 ring-2 ring-white animate-ping"></span>
+      </button>
+    </nav>
+
   </div>
 
   <!-- =====================================================================
-       MODAL 4: POPUP THÔNG BÁO KẾT QUẢ QUÉT & VỊ TRÍ ĐỖ XE (CHỐNG QUÉT LẶP)
+       POPUP 1: MODAL KẾT QUẢ QUÉT CỔNG + VỊ TRÍ ĐỖ XE (AUTO-PAUSE LOCK)
        ===================================================================== -->
-  <div id="modal-scan-result-popup" class="hidden fixed inset-0 z-[100] bg-slate-900/75 backdrop-blur-md flex items-center justify-center p-4">
+  <div id="modal-scan-result-popup" class="hidden fixed inset-0 z-[100] bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4">
     <div id="scan-popup-card" class="bg-white rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border-[3px] border-emerald-500 space-y-4 animate-slide-up text-center relative overflow-hidden">
-
-      <!-- Top Icon Badge -->
       <div class="flex flex-col items-center">
         <div id="scan-popup-icon-wrap" class="w-20 h-20 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shadow-inner mb-3 border-4 border-emerald-200">
-          <i id="scan-popup-icon" data-lucide="check" class="w-11 h-11 stroke-[3]"></i>
+          <i data-lucide="check" class="w-11 h-11 stroke-[3]"></i>
         </div>
-        <h3 id="scan-popup-title" class="text-xl sm:text-2xl font-black tracking-tight text-emerald-700 uppercase">
-          XÁC NHẬN THÀNH CÔNG
-        </h3>
-        <p id="scan-popup-subtitle" class="text-xs sm:text-sm font-semibold text-slate-500 mt-0.5">
-          Hệ thống bãi giữ xe thông minh UEH Mekong
-        </p>
+        <h3 id="scan-popup-title" class="text-xl sm:text-2xl font-black tracking-tight text-emerald-700 uppercase">XÁC NHẬN THÀNH CÔNG</h3>
+        <p id="scan-popup-subtitle" class="text-xs sm:text-sm font-semibold text-slate-500 mt-0.5">Hệ thống bãi giữ xe thông minh UEH Mekong</p>
       </div>
 
-      <!-- Central Highlighted Location Card (Check-in / Check-out) -->
       <div id="scan-popup-location-card" class="bg-gradient-to-br from-[#005f69] to-[#0d3b42] text-white rounded-2xl p-4 sm:p-5 shadow-lg border border-teal-400/30 space-y-1">
-        <div id="scan-popup-location-heading" class="text-[11px] font-extrabold uppercase tracking-widest text-teal-200">
-          📍 VỊ TRÍ BÃI ĐỖ XE CỦA BẠN
-        </div>
-        <div id="scan-popup-slot-code" class="text-4xl sm:text-5xl font-black tracking-tight text-white py-1">
-          Ô A03
-        </div>
-        <div id="scan-popup-zone-name" class="text-xs sm:text-sm font-bold text-orange-300">
-          Bãi đỗ xe Khu A - Nhà xe có mái che
-        </div>
+        <div id="scan-popup-location-heading" class="text-[11px] font-extrabold uppercase tracking-widest text-teal-200">📍 VỊ TRÍ BÃI ĐỖ XE CỦA BẠN</div>
+        <div id="scan-popup-slot-code" class="text-4xl sm:text-5xl font-black tracking-tight text-white py-1">Ô A03</div>
+        <div id="scan-popup-zone-name" class="text-xs sm:text-sm font-bold text-orange-300">Bãi đỗ xe Khu A - Nhà xe có mái che</div>
       </div>
 
-      <!-- Error Message Box (Only shown on Case 3: Scan Failure) -->
       <div id="scan-popup-error-box" class="hidden bg-red-50 border border-red-200 rounded-2xl p-4 text-center space-y-1.5">
-        <p id="scan-popup-error-text" class="text-sm font-bold text-red-700">
-          Mã vạch không tồn tại trong hệ thống UEH Mekong.
-        </p>
-        <p id="scan-popup-error-code" class="text-xs font-mono font-semibold text-red-500">
-          Mã đã quét: —
-        </p>
+        <p id="scan-popup-error-text" class="text-sm font-bold text-red-700">Mã vạch không tồn tại trong hệ thống UEH Mekong.</p>
+        <p id="scan-popup-error-code" class="text-xs font-mono font-semibold text-red-500">Mã đã quét: —</p>
       </div>
 
-      <!-- Compact Student Confirmation Details Box -->
       <div id="scan-popup-details-box" class="bg-slate-50 rounded-2xl p-3.5 border border-slate-200/90 text-xs space-y-2 text-left">
-        <div class="flex items-center justify-between gap-2">
-          <span class="text-slate-500 font-medium">Sinh viên:</span>
-          <span id="scan-popup-student-name" class="font-extrabold text-slate-900 text-right">Nguyễn Đặng Hoàn Mỹ</span>
-        </div>
-        <div class="flex items-center justify-between gap-2">
-          <span class="text-slate-500 font-medium">MSSV:</span>
-          <span id="scan-popup-student-mssv" class="font-mono font-bold text-slate-800">31251570256</span>
-        </div>
-        <div class="flex items-center justify-between gap-2">
-          <span class="text-slate-500 font-medium">Biển số xe:</span>
-          <span id="scan-popup-student-plate" class="font-mono font-extrabold text-[#005f69]">95H1-986.23</span>
-        </div>
-        <div class="flex items-center justify-between gap-2 border-t border-slate-200/80 pt-1.5">
-          <span id="scan-popup-time-label" class="text-slate-500 font-medium">Thời gian vào bãi:</span>
-          <span id="scan-popup-time-val" class="font-bold text-slate-800 tabular-nums">21:18 - 22/11/2026</span>
-        </div>
+        <div class="flex items-center justify-between gap-2"><span class="text-slate-500 font-medium">Sinh viên:</span><span id="scan-popup-student-name" class="font-extrabold text-slate-900 text-right">—</span></div>
+        <div class="flex items-center justify-between gap-2"><span class="text-slate-500 font-medium">MSSV:</span><span id="scan-popup-student-mssv" class="font-mono font-bold text-slate-800">—</span></div>
+        <div class="flex items-center justify-between gap-2"><span class="text-slate-500 font-medium">Biển số xe:</span><span id="scan-popup-student-plate" class="font-mono font-extrabold text-[#005f69]">—</span></div>
+        <div class="flex items-center justify-between gap-2 border-t border-slate-200/80 pt-1.5"><span id="scan-popup-time-label" class="text-slate-500 font-medium">Thời gian vào bãi:</span><span id="scan-popup-time-val" class="font-bold text-slate-800 tabular-nums">—</span></div>
       </div>
 
-      <!-- Primary & Secondary Action Buttons -->
       <div id="scan-popup-actions" class="space-y-2 pt-1">
         <button id="scan-popup-primary-btn" onclick="closeScanResultModal(false)" class="w-full py-3.5 px-5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm sm:text-base shadow-lg transition active:scale-95">
-          ✅ Đã hiểu & Đóng thông báo
+          ✅ Đã hiểu & Đóng
         </button>
-        <button id="scan-popup-secondary-btn" onclick="closeScanResultModal(true)" class="w-full py-2 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition">
+        <button id="scan-popup-secondary-btn" onclick="closeScanResultModal(true)" class="w-full py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition">
           📷 Tiếp tục quét lượt kế tiếp (sau 1.5s)
         </button>
       </div>
     </div>
   </div>
 
-  <!-- Application Logic -->
+  <!-- =====================================================================
+       POPUP 2: FULL-SCREEN EMERGENCY FLOOD PUSH NOTIFICATION (SYNCED FROM ADMIN)
+       ===================================================================== -->
+  <div id="student-flood-popup-modal" class="hidden fixed inset-0 z-[110] bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-md w-full overflow-hidden shadow-2xl border-[3px] border-red-500 animate-slide-up">
+      <div class="bg-gradient-to-r from-red-600 to-orange-600 text-white p-5 text-center space-y-2">
+        <div class="w-16 h-16 rounded-full bg-white/20 mx-auto flex items-center justify-center animate-bounce">
+          <i data-lucide="cloud-lightning" class="w-9 h-9 text-yellow-200"></i>
+        </div>
+        <div class="inline-block bg-black/25 px-3 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider text-yellow-200">
+          Thông báo khẩn cấp • Bãi giữ xe UEH Mekong
+        </div>
+        <h3 class="text-xl font-black leading-tight">CẢNH BÁO MƯA LỚN & NGẬP NƯỚC!</h3>
+      </div>
+
+      <div class="p-5 space-y-4 text-center">
+        <p class="text-sm text-slate-700 font-semibold leading-relaxed">
+          Khu vực bãi đỗ xe ngoài trời dọc bờ sông đang có nguy cơ ngập nước cao! Hệ thống đề xuất chuyển phương tiện của bạn sang <strong class="text-[#005f69]">Khu A (Nhà xe có mái che)</strong>.
+        </p>
+        <div class="space-y-2.5">
+          <button onclick="acceptFloodRelocationFromMobile()" class="w-full py-4 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm sm:text-base shadow-lg flex items-center justify-center gap-2 transition active:scale-95">
+            <i data-lucide="check-circle-2" class="w-5 h-5"></i>
+            <span>Chuyển xe sang Khu A có mái che</span>
+          </button>
+          <button onclick="dismissStudentFloodModal()" class="w-full py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs transition">
+            Để sau / Đóng cảnh báo
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Shared Application Logic -->
   <script src="app.js"></script>
 </body>
 </html>

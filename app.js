@@ -138,7 +138,11 @@ let isScanModalOpen = false;
 let isScannerCooldown = false;
 let wasCameraPausedByModal = false;
 let wasCameraActiveBeforeModal = false;
+let APP_ROLE = "admin"; // "student" (link /) hoặc "admin" (link /admin)
 let currentAppViewMode = "admin";
+let currentStudentTab = "scan";
+let studentSelectedZoneId = "khu-a";
+let studentSelectedFreeSlotCode = null;
 let availableCameras = [];
 let currentCameraIndex = -1;
 let currentFacingMode = "environment";
@@ -173,9 +177,14 @@ let activityLogs = [];
 let systemAlerts = [];
 
 // ==========================================================================
-// 4. KHỞI TẠO HỆ THỐNG (INITIALIZATION)
+// 4. KHỞI TẠO HỆ THỐNG (INITIALIZATION - HỖ TRỢ ĐỘC LẬP 2 LINK: / VÀ /admin)
 // ==========================================================================
 document.addEventListener("DOMContentLoaded", () => {
+  APP_ROLE = (document.body && document.body.dataset && document.body.dataset.appRole)
+    ? document.body.dataset.appRole
+    : "admin";
+  currentAppViewMode = APP_ROLE;
+
   try {
     lastSpokenEventId = localStorage.getItem("unismartpark_last_spoken_event_id") || "";
   } catch (e) {}
@@ -187,7 +196,7 @@ document.addEventListener("DOMContentLoaded", () => {
   populateZoneDropdown();
   populateStudentDropdowns();
 
-  // Khởi tạo danh sách giọng đọc tiếng Việt (vi / vi-VN) và tự động mở khóa Loa Admin ngay ở cú click đầu tiên
+  // Khởi tạo danh sách giọng đọc tiếng Việt (vi / vi-VN) và tự động mở khóa Loa ở cú chạm/click đầu tiên
   initVoiceSynthesisVoices();
   ["click", "pointerdown", "touchstart", "keydown"].forEach(evtName => {
     document.addEventListener(evtName, () => {
@@ -197,20 +206,28 @@ document.addEventListener("DOMContentLoaded", () => {
     }, { passive: true });
   });
 
-  // Render initial UI
-  render20SlotGrid();
-  selectSlot("A01");
-  renderScannedStudentCard(students[0], "Check-in (Vào bãi)", true);
-  renderKPICards();
-  renderRecentActivityTable();
-  renderDashboardAlerts();
-  renderNotificationsPopover();
-  renderStudentDatabaseTable();
-  renderCampusMapViews();
-  renderMobileStudentApp();
-  updateWeatherWidgetUI();
+  // Render giao diện phù hợp theo vai trò của đường link (/ hoặc /admin)
+  if (APP_ROLE === "student") {
+    renderMobileStudentApp();
+    renderStudentParkingTab();
+    renderStudentNotificationsTab();
+    if (isFloodSimActive) {
+      showStudentFloodPopupModal();
+    }
+  } else {
+    render20SlotGrid();
+    selectSlot("A01");
+    renderScannedStudentCard(students[0], "Check-in (Vào bãi)", true);
+    renderKPICards();
+    renderRecentActivityTable();
+    renderDashboardAlerts();
+    renderNotificationsPopover();
+    renderStudentDatabaseTable();
+    renderCampusMapViews();
+    updateWeatherWidgetUI();
+  }
 
-  // Khởi tạo kết nối Đồng bộ đám mây thời gian thực (MQTT over WebSockets) giữa Điện thoại & Laptop
+  // Khởi tạo kết nối Đồng bộ đám mây thời gian thực (MQTT over WebSockets) giữa 2 Link (/ <-> /admin)
   initCloudSyncMQTT();
 
   // Start real-time clock
@@ -220,15 +237,14 @@ document.addEventListener("DOMContentLoaded", () => {
   // Populate available camera devices quietly if supported
   discoverCameraDevices();
 
-  // Check URL query params (e.g., ?mode=student or ?mssv=31251570287)
+  // Optional MSSV query param on Student Link (e.g. ?mssv=31251570287)
   const params = new URLSearchParams(window.location.search);
-  if (params.get("mode") === "student") {
-    switchAppMode("student");
-  }
   if (params.get("mssv")) {
     const found = students.find(s => s.mssv === params.get("mssv"));
     if (found) {
       currentMobileStudentMssv = found.mssv;
+      const mobileSelect = document.getElementById("mobile-student-switcher");
+      if (mobileSelect) mobileSelect.value = found.mssv;
       renderMobileStudentApp();
     }
   }
@@ -239,7 +255,7 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // ==========================================================================
-// 4B. ĐỒNG BỘ THỜI GIAN THỰC ĐIỆN THOẠI <-> LAPTOP (CLOUD SYNC MQTT WSS)
+// 4B. ĐỒNG BỘ THỜI GIAN THỰC 2 LINK: SINH VIÊN (/) <-> ADMIN (/admin) (MQTT WSS)
 // ==========================================================================
 function markEventAsSpoken(eventId) {
   if (!eventId) return;
@@ -255,10 +271,30 @@ function updateCloudSyncBadgeUI(statusType, customText) {
   const txt = document.getElementById("cloud-sync-text");
   if (!badge || !dot || !txt) return;
 
+  if (APP_ROLE === "student") {
+    if (statusType === "connected") {
+      badge.className = "inline-flex items-center gap-1 text-[10px] font-bold text-emerald-200 mt-0.5";
+      dot.className = "w-2 h-2 rounded-full bg-emerald-400 animate-pulse";
+      txt.textContent = "🟢 Đồng bộ trực tuyến";
+    } else if (statusType === "syncing") {
+      badge.className = "inline-flex items-center gap-1 text-[10px] font-extrabold text-yellow-200 mt-0.5";
+      dot.className = "w-2 h-2 rounded-full bg-yellow-300 animate-ping";
+      txt.textContent = "⚡ Vừa đồng bộ!";
+      setTimeout(() => {
+        if (isMqttConnected) updateCloudSyncBadgeUI("connected");
+      }, 1200);
+    } else {
+      badge.className = "inline-flex items-center gap-1 text-[10px] font-bold text-amber-200 mt-0.5";
+      dot.className = "w-2 h-2 rounded-full bg-amber-400 animate-ping";
+      txt.textContent = "🟡 Đang kết nối...";
+    }
+    return;
+  }
+
   if (statusType === "connected") {
     badge.className = "flex items-center gap-1.5 bg-emerald-50 border border-emerald-300 text-emerald-800 px-2.5 py-1.5 rounded-xl text-[11px] font-extrabold shadow-sm transition-all";
     dot.className = "w-2 h-2 rounded-full bg-emerald-500 animate-pulse";
-    txt.textContent = customText || "🟢 Đồng bộ trực tuyến (Phone ↔ Laptop)";
+    txt.textContent = customText || "🟢 Đồng bộ trực tuyến";
   } else if (statusType === "syncing") {
     badge.className = "flex items-center gap-1.5 bg-teal-50 border border-teal-400 text-[#005f69] px-2.5 py-1.5 rounded-xl text-[11px] font-extrabold shadow-md scale-[1.02] transition-all";
     dot.className = "w-2 h-2 rounded-full bg-[#f26f21] animate-ping";
@@ -455,18 +491,23 @@ function applyCloudSyncState(payload, isFirstRetainedPacket = false) {
 
   // Cập nhật tức thì toàn bộ giao diện trên màn hình mà không cần tải lại trang
   populateStudentDropdowns();
-  updateWeatherWidgetUI();
-  render20SlotGrid();
-  selectSlot(selectedSlotCode);
-  renderKPICards();
-  renderRecentActivityTable();
-  renderDashboardAlerts();
-  renderNotificationsPopover();
-  renderStudentDatabaseTable();
-  renderCampusMapViews();
-  renderMobileStudentApp();
+  if (APP_ROLE === "student") {
+    renderMobileStudentApp();
+    renderStudentParkingTab();
+    renderStudentNotificationsTab();
+  } else {
+    updateWeatherWidgetUI();
+    render20SlotGrid();
+    selectSlot(selectedSlotCode);
+    renderKPICards();
+    renderRecentActivityTable();
+    renderDashboardAlerts();
+    renderNotificationsPopover();
+    renderStudentDatabaseTable();
+    renderCampusMapViews();
+  }
 
-  // Xử lý scanEvent đồng bộ từ Điện thoại sang máy tính Admin (kèm chống phát lặp khi F5)
+  // Xử lý scanEvent đồng bộ giữa 2 Link (Điện thoại Sinh viên <-> Máy tính Admin) kèm chống lặp F5
   const ev = payload.scanEvent;
   if (ev && ev.eventId) {
     const isNewUnspokenEvent = ev.eventId !== lastSpokenEventId;
@@ -474,50 +515,55 @@ function applyCloudSyncState(payload, isFirstRetainedPacket = false) {
     // Chỉ phát âm thanh cho sự kiện mới phát sinh trong vòng 15 giây gần nhất (hoặc gói tin live vừa bắn sang khi trang đang mở)
     const shouldSpeakNow = isNewUnspokenEvent && (!isFirstRetainedPacket || ageMs <= 15000);
 
-    // Cập nhật khung "Thiết bị quét tại cổng" ở cột trái màn hình Admin
     if (ev.action === "checkin" || ev.action === "checkout") {
       const isCheckIn = ev.action === "checkin";
       const dirLabel = isCheckIn ? "Check-in (Vào bãi)" : "Check-out (Ra bãi)";
-      updateScanStatusBanner(true, `✔ Quét thành công! (${ev.hoTen})`);
-      renderScannedStudentCard(
-        {
-          mssv: ev.mssv,
-          hoTen: ev.hoTen,
-          ngaySinh: ev.ngaySinh || "2007",
-          bienSo: ev.bienSo,
-          dongXe: ev.dongXe || "Xe máy",
-          loaiXe: ev.loaiXe || "Xe máy",
-          oDo: ev.slotId
-        },
-        dirLabel,
-        isCheckIn,
-        ev.zoneName
-      );
 
-      if (ev.slotId) {
-        for (const zId of Object.keys(parkingZones)) {
-          if (parkingZones[zId].some(s => s.code === ev.slotId)) {
-            if (currentZoneId !== zId) {
-              currentZoneId = zId;
-              populateZoneDropdown();
+      if (APP_ROLE === "admin") {
+        updateScanStatusBanner(true, `✔ Quét thành công! (${ev.hoTen})`);
+        renderScannedStudentCard(
+          {
+            mssv: ev.mssv,
+            hoTen: ev.hoTen,
+            ngaySinh: ev.ngaySinh || "2007",
+            bienSo: ev.bienSo,
+            dongXe: ev.dongXe || "Xe máy",
+            loaiXe: ev.loaiXe || "Xe máy",
+            oDo: ev.slotId
+          },
+          dirLabel,
+          isCheckIn,
+          ev.zoneName
+        );
+
+        if (ev.slotId) {
+          for (const zId of Object.keys(parkingZones)) {
+            if (parkingZones[zId].some(s => s.code === ev.slotId)) {
+              if (currentZoneId !== zId) {
+                currentZoneId = zId;
+                populateZoneDropdown();
+              }
+              break;
             }
-            break;
           }
+          render20SlotGrid();
+          selectSlot(ev.slotId);
         }
-        render20SlotGrid();
-        selectSlot(ev.slotId);
       }
 
       if (shouldSpeakNow) {
         markEventAsSpoken(ev.eventId);
-        playFeedbackBeep(true);
         const fallbackSpeech = isCheckIn
           ? `Xác nhận thành công. Vị trí đỗ xe của bạn là ô ${formatSlotCodeForSpeech(ev.slotId)}, ${ev.zoneName || "Bãi đỗ xe Khu A"}.`
           : `Xác nhận ra cổng thành công. Đã giải phóng ô ${formatSlotCodeForSpeech(ev.slotId)}.`;
-        speakVietnamese(ev.speechText || fallbackSpeech);
 
-        // Nếu thiết bị nhận đang ở chế độ App Sinh viên, bật ngay Popup vị trí đỗ xe cho sinh viên thấy
-        if (currentAppViewMode === "student") {
+        if (APP_ROLE === "admin") {
+          playFeedbackBeep(true);
+          speakVietnamese(ev.speechText || fallbackSpeech);
+        } else if (APP_ROLE === "student" && ev.mssv === currentMobileStudentMssv) {
+          // Nếu đang ở Link Sinh viên (/) và vừa có lượt quét từ cổng Admin cho chính sinh viên đang đăng nhập -> Bật Popup vị trí đỗ xe + Phát loa
+          playFeedbackBeep(true);
+          speakVietnamese(ev.speechText || fallbackSpeech);
           showScanResultModal({
             type: isCheckIn ? "checkin" : "checkout",
             hoTen: ev.hoTen,
@@ -532,12 +578,16 @@ function applyCloudSyncState(payload, isFirstRetainedPacket = false) {
         markEventAsSpoken(ev.eventId);
       }
     } else if (ev.action === "fail") {
-      updateScanStatusBanner(false, `KHÔNG THỂ XÁC NHẬN! Mã lạ: ${ev.mssv || ""}`);
-      renderUnknownScannedCard(ev.mssv || "Mã lạ");
+      if (APP_ROLE === "admin") {
+        updateScanStatusBanner(false, `KHÔNG THỂ XÁC NHẬN! Mã lạ: ${ev.mssv || ""}`);
+        renderUnknownScannedCard(ev.mssv || "Mã lạ");
+      }
       if (shouldSpeakNow) {
         markEventAsSpoken(ev.eventId);
-        playFeedbackBeep(false);
-        speakVietnamese(ev.speechText || "Không thể xác nhận.");
+        if (APP_ROLE === "admin") {
+          playFeedbackBeep(false);
+          speakVietnamese(ev.speechText || "Không thể xác nhận.");
+        }
       } else if (isNewUnspokenEvent) {
         markEventAsSpoken(ev.eventId);
       }
@@ -547,13 +597,13 @@ function applyCloudSyncState(payload, isFirstRetainedPacket = false) {
   // Xử lý các sự kiện đồng bộ khác từ thiết bị kia gửi sang
   const act = payload.lastAction;
   if (act && payload.senderId !== CLIENT_SESSION_ID) {
-    updateCloudSyncBadgeUI("syncing", "⚡ Nhận đồng bộ từ thiết bị khác!");
+    updateCloudSyncBadgeUI("syncing", "⚡ Nhận đồng bộ!");
 
     if (act.type === "plate_mismatch") {
       showEmergencyStrip(act.title, act.desc);
     } else if (act.type === "plate_match" || act.type === "slot_edit" || act.type === "reserve") {
       if (act.type === "plate_match") hideEmergencyStrip();
-      if (act.slotCode) {
+      if (APP_ROLE === "admin" && act.slotCode) {
         for (const zId of Object.keys(parkingZones)) {
           if (parkingZones[zId].some(s => s.code === act.slotCode)) {
             if (currentZoneId !== zId) {
@@ -567,22 +617,21 @@ function applyCloudSyncState(payload, isFirstRetainedPacket = false) {
         selectSlot(act.slotCode);
       }
     } else if (act.type === "flood_on") {
-      const pushBanner = document.getElementById("push-notification-banner");
-      if (pushBanner) pushBanner.classList.remove("hidden");
-      const studentBadge = document.getElementById("student-app-badge");
-      if (studentBadge) studentBadge.classList.remove("hidden");
-      const mobileFloodCard = document.getElementById("mobile-flood-alert-card");
-      if (mobileFloodCard) mobileFloodCard.classList.remove("hidden");
+      if (APP_ROLE === "student") {
+        showStudentFloodPopupModal();
+        playFeedbackBeep(false);
+      } else {
+        const pushBanner = document.getElementById("push-notification-banner");
+        if (pushBanner) pushBanner.classList.remove("hidden");
+      }
     } else if (act.type === "flood_off" || act.type === "reset") {
       dismissPushBanner();
+      dismissStudentFloodModal();
       hideEmergencyStrip();
-      const mobileFloodCard = document.getElementById("mobile-flood-alert-card");
-      if (mobileFloodCard) mobileFloodCard.classList.add("hidden");
     } else if (act.type === "flood_relocate") {
       dismissPushBanner();
-      const mobileFloodCard = document.getElementById("mobile-flood-alert-card");
-      if (mobileFloodCard) mobileFloodCard.classList.add("hidden");
-      if (act.slotCode) {
+      dismissStudentFloodModal();
+      if (APP_ROLE === "admin" && act.slotCode) {
         currentZoneId = "khu-a";
         populateZoneDropdown();
         render20SlotGrid();
@@ -882,12 +931,14 @@ function selectParkingZone(zoneId) {
     // Update roof filter buttons highlight
     const btnIndoor = document.getElementById("filter-roof-indoor");
     const btnOutdoor = document.getElementById("filter-roof-outdoor");
-    if (zoneMeta.roofType === "indoor") {
-      btnIndoor.className = "px-2.5 py-1 rounded-lg text-xs font-bold transition bg-[#005f69] text-white";
-      btnOutdoor.className = "px-2.5 py-1 rounded-lg text-xs font-bold transition text-slate-600 hover:text-slate-900";
-    } else {
-      btnOutdoor.className = "px-2.5 py-1 rounded-lg text-xs font-bold transition bg-[#f26f21] text-white";
-      btnIndoor.className = "px-2.5 py-1 rounded-lg text-xs font-bold transition text-slate-600 hover:text-slate-900";
+    if (btnIndoor && btnOutdoor) {
+      if (zoneMeta.roofType === "indoor") {
+        btnIndoor.className = "px-2.5 py-1 rounded-lg text-xs font-bold transition bg-[#005f69] text-white";
+        btnOutdoor.className = "px-2.5 py-1 rounded-lg text-xs font-bold transition text-slate-600 hover:text-slate-900";
+      } else {
+        btnOutdoor.className = "px-2.5 py-1 rounded-lg text-xs font-bold transition bg-[#f26f21] text-white";
+        btnIndoor.className = "px-2.5 py-1 rounded-lg text-xs font-bold transition text-slate-600 hover:text-slate-900";
+      }
     }
 
     const roofBadge = document.getElementById("current-zone-roof-badge");
@@ -923,12 +974,14 @@ function setVehicleFilter(vehicleType) {
   currentVehicleFilter = vehicleType;
   const btnMoto = document.getElementById("filter-vehicle-moto");
   const btnCar = document.getElementById("filter-vehicle-car");
-  if (vehicleType === "Xe máy") {
-    btnMoto.className = "px-2 py-1 rounded-lg text-xs font-bold transition bg-[#005f69] text-white";
-    btnCar.className = "px-2 py-1 rounded-lg text-xs font-bold transition text-slate-600 hover:text-slate-900";
-  } else {
-    btnCar.className = "px-2 py-1 rounded-lg text-xs font-bold transition bg-[#005f69] text-white";
-    btnMoto.className = "px-2 py-1 rounded-lg text-xs font-bold transition text-slate-600 hover:text-slate-900";
+  if (btnMoto && btnCar) {
+    if (vehicleType === "Xe máy") {
+      btnMoto.className = "px-2 py-1 rounded-lg text-xs font-bold transition bg-[#005f69] text-white";
+      btnCar.className = "px-2 py-1 rounded-lg text-xs font-bold transition text-slate-600 hover:text-slate-900";
+    } else {
+      btnCar.className = "px-2 py-1 rounded-lg text-xs font-bold transition bg-[#005f69] text-white";
+      btnMoto.className = "px-2 py-1 rounded-lg text-xs font-bold transition text-slate-600 hover:text-slate-900";
+    }
   }
   render20SlotGrid();
 }
@@ -1091,29 +1144,45 @@ function selectSlot(slotCode) {
   if (btnUnav) btnUnav.className = `py-1.5 px-2 rounded-lg text-[11px] font-extrabold flex items-center justify-center gap-1 shadow-sm transition active:scale-95 ${slot.status === "unavailable" ? "bg-red-600 text-white ring-2 ring-red-300" : "bg-red-50 hover:bg-red-100 text-red-600 border border-red-300"}`;
 
   if (slot.status === "free") {
-    codeEl.className = "text-2xl sm:text-3xl font-black text-emerald-700 bg-emerald-50 border border-emerald-200 px-4 py-2 rounded-xl";
-    badgeEl.className = "px-3.5 py-2 rounded-xl bg-emerald-50 text-emerald-700 font-bold text-xs sm:text-sm flex items-center gap-1.5 border border-emerald-200";
-    badgeEl.innerHTML = `<i data-lucide="check-circle-2" class="w-4 h-4"></i><span>Trống</span>`;
-    statusTextEl.textContent = "Sẵn sàng sử dụng";
-    statusTextEl.className = "font-bold text-emerald-700";
+    if (codeEl) codeEl.className = "text-2xl sm:text-3xl font-black text-emerald-700 bg-emerald-50 border border-emerald-200 px-4 py-2 rounded-xl";
+    if (badgeEl) {
+      badgeEl.className = "px-3.5 py-2 rounded-xl bg-emerald-50 text-emerald-700 font-bold text-xs sm:text-sm flex items-center gap-1.5 border border-emerald-200";
+      badgeEl.innerHTML = `<i data-lucide="check-circle-2" class="w-4 h-4"></i><span>Trống</span>`;
+    }
+    if (statusTextEl) {
+      statusTextEl.textContent = "Sẵn sàng sử dụng";
+      statusTextEl.className = "font-bold text-emerald-700";
+    }
   } else if (slot.status === "occupied") {
-    codeEl.className = "text-2xl sm:text-3xl font-black text-blue-700 bg-blue-50 border border-blue-200 px-4 py-2 rounded-xl";
-    badgeEl.className = "px-3.5 py-2 rounded-xl bg-blue-50 text-blue-700 font-bold text-xs sm:text-sm flex items-center gap-1.5 border border-blue-200";
-    badgeEl.innerHTML = `<i data-lucide="bike" class="w-4 h-4"></i><span>Đang sử dụng</span>`;
-    statusTextEl.textContent = slot.note || "Đang có phương tiện đỗ";
-    statusTextEl.className = "font-bold text-blue-700";
+    if (codeEl) codeEl.className = "text-2xl sm:text-3xl font-black text-blue-700 bg-blue-50 border border-blue-200 px-4 py-2 rounded-xl";
+    if (badgeEl) {
+      badgeEl.className = "px-3.5 py-2 rounded-xl bg-blue-50 text-blue-700 font-bold text-xs sm:text-sm flex items-center gap-1.5 border border-blue-200";
+      badgeEl.innerHTML = `<i data-lucide="bike" class="w-4 h-4"></i><span>Đang sử dụng</span>`;
+    }
+    if (statusTextEl) {
+      statusTextEl.textContent = slot.note || "Đang có phương tiện đỗ";
+      statusTextEl.className = "font-bold text-blue-700";
+    }
   } else if (slot.status === "reserved") {
-    codeEl.className = "text-2xl sm:text-3xl font-black text-[#f26f21] bg-orange-50 border border-orange-200 px-4 py-2 rounded-xl";
-    badgeEl.className = "px-3.5 py-2 rounded-xl bg-orange-50 text-[#f26f21] font-bold text-xs sm:text-sm flex items-center gap-1.5 border border-orange-200";
-    badgeEl.innerHTML = `<i data-lucide="calendar-clock" class="w-4 h-4"></i><span>Đặt trước</span>`;
-    statusTextEl.textContent = slot.note || "Đã được sinh viên đặt trước";
-    statusTextEl.className = "font-bold text-[#f26f21]";
+    if (codeEl) codeEl.className = "text-2xl sm:text-3xl font-black text-[#f26f21] bg-orange-50 border border-orange-200 px-4 py-2 rounded-xl";
+    if (badgeEl) {
+      badgeEl.className = "px-3.5 py-2 rounded-xl bg-orange-50 text-[#f26f21] font-bold text-xs sm:text-sm flex items-center gap-1.5 border border-orange-200";
+      badgeEl.innerHTML = `<i data-lucide="calendar-clock" class="w-4 h-4"></i><span>Đặt trước</span>`;
+    }
+    if (statusTextEl) {
+      statusTextEl.textContent = slot.note || "Đã được sinh viên đặt trước";
+      statusTextEl.className = "font-bold text-[#f26f21]";
+    }
   } else {
-    codeEl.className = "text-2xl sm:text-3xl font-black text-red-600 bg-red-50 border border-red-200 px-4 py-2 rounded-xl";
-    badgeEl.className = "px-3.5 py-2 rounded-xl bg-red-50 text-red-600 font-bold text-xs sm:text-sm flex items-center gap-1.5 border border-red-200";
-    badgeEl.innerHTML = `<i data-lucide="alert-triangle" class="w-4 h-4"></i><span>Không khả dụng</span>`;
-    statusTextEl.textContent = slot.note || "Ngập nước / Tạm ngưng";
-    statusTextEl.className = "font-bold text-red-600";
+    if (codeEl) codeEl.className = "text-2xl sm:text-3xl font-black text-red-600 bg-red-50 border border-red-200 px-4 py-2 rounded-xl";
+    if (badgeEl) {
+      badgeEl.className = "px-3.5 py-2 rounded-xl bg-red-50 text-red-600 font-bold text-xs sm:text-sm flex items-center gap-1.5 border border-red-200";
+      badgeEl.innerHTML = `<i data-lucide="alert-triangle" class="w-4 h-4"></i><span>Không khả dụng</span>`;
+    }
+    if (statusTextEl) {
+      statusTextEl.textContent = slot.note || "Ngập nước / Tạm ngưng";
+      statusTextEl.className = "font-bold text-red-600";
+    }
   }
 
   if (window.lucide) lucide.createIcons();
@@ -1356,6 +1425,7 @@ function switchScanTab(tab) {
   const btnRfid = document.getElementById("scan-tab-rfid");
   const btnBarcode = document.getElementById("scan-tab-barcode");
   const hintText = document.getElementById("scanner-hint-text");
+  if (!btnRfid || !btnBarcode) return;
 
   if (tab === "rfid") {
     btnRfid.className = "py-2 px-2.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition bg-[#005f69] text-white shadow-sm";
@@ -1442,8 +1512,8 @@ async function startSmartCameraScanner(customConstraint = null) {
     isCameraRunning = false;
   }
 
-  readerEl.classList.remove("hidden");
-  idlePreviewEl.classList.add("hidden");
+  if (readerEl) readerEl.classList.remove("hidden");
+  if (idlePreviewEl) idlePreviewEl.classList.add("hidden");
   if (stopBtn) stopBtn.classList.remove("hidden");
   if (indicator) {
     indicator.textContent = "Đang mở Camera...";
@@ -1538,8 +1608,8 @@ async function startSmartCameraScanner(customConstraint = null) {
       }
     } catch (fallbackErr) {
       console.warn("Không thể mở Camera sau khi đã thử fallback:", fallbackErr);
-      readerEl.classList.add("hidden");
-      idlePreviewEl.classList.remove("hidden");
+      if (readerEl) readerEl.classList.add("hidden");
+      if (idlePreviewEl) idlePreviewEl.classList.remove("hidden");
       if (stopBtn) stopBtn.classList.add("hidden");
       if (indicator) {
         indicator.textContent = "Dùng Chụp ảnh / Test nhanh";
@@ -1830,17 +1900,17 @@ function showScanResultModal(opts) {
   const nowStr = getFormattedNowShort();
 
   if (opts.type === "checkin") {
-    // TRƯỜNG HỢP 1: QUÉT CHECK-IN THÀNH CÔNG
+    // TRƯỜNG HỢP 1: QUÉT CHECK-IN THÀNH CÔNG (HOẶC ĐẶT CHỖ / ĐIỀU PHỐI THÀNH CÔNG)
     card.className = "bg-white rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border-[3px] border-emerald-500 space-y-4 animate-slide-up text-center relative overflow-hidden";
     iconWrap.className = "w-20 h-20 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shadow-inner mb-3 border-4 border-emerald-200";
     iconWrap.innerHTML = `<i data-lucide="check" class="w-11 h-11 stroke-[3]"></i>`;
     titleEl.className = "text-xl sm:text-2xl font-black tracking-tight text-emerald-700 uppercase";
-    titleEl.textContent = "XÁC NHẬN THÀNH CÔNG";
-    subtitleEl.textContent = "Chào mừng bạn vào bãi giữ xe thông minh UEH Mekong";
+    titleEl.textContent = opts.customTitle || "XÁC NHẬN THÀNH CÔNG";
+    subtitleEl.textContent = opts.customSubtitle || "Chào mừng bạn vào bãi giữ xe thông minh UEH Mekong";
 
     locCard.className = "bg-gradient-to-br from-[#005f69] to-[#0d3b42] text-white rounded-2xl p-4 sm:p-5 shadow-lg border border-teal-400/30 space-y-1";
     locCard.classList.remove("hidden");
-    locHeading.textContent = "📍 VỊ TRÍ BÃI ĐỖ XE CỦA BẠN";
+    locHeading.textContent = opts.customHeading || "📍 VỊ TRÍ BÃI ĐỖ XE CỦA BẠN";
     slotCodeEl.textContent = `Ô ${opts.slotId || "A01"}`;
     zoneNameEl.textContent = opts.zoneFullLabel || getFullZoneLabelWithRoofBySlotCode(opts.slotId);
 
@@ -1849,17 +1919,21 @@ function showScanResultModal(opts) {
     stuNameEl.textContent = opts.hoTen || "Sinh viên UEH";
     stuMssvEl.textContent = opts.mssv || "—";
     stuPlateEl.textContent = opts.bienSo || "—";
-    timeLabelEl.textContent = "Thời gian vào bãi:";
+    timeLabelEl.textContent = opts.customTimeLabel || "Thời gian vào bãi:";
     timeValEl.textContent = nowStr;
 
     primaryBtn.textContent = "✅ Đã hiểu & Đóng thông báo";
     primaryBtn.className = "w-full py-3.5 px-5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm sm:text-base shadow-lg transition active:scale-95";
     primaryBtn.setAttribute("onclick", "closeScanResultModal(false)");
 
-    secondaryBtn.textContent = "📷 Quét tiếp lượt kế tiếp (sau 1.5s)";
-    secondaryBtn.className = "w-full py-2 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition";
-    secondaryBtn.setAttribute("onclick", "closeScanResultModal(true)");
-    secondaryBtn.classList.remove("hidden");
+    if (opts.hideSecondaryBtn) {
+      secondaryBtn.classList.add("hidden");
+    } else {
+      secondaryBtn.textContent = "📷 Quét tiếp lượt kế tiếp (sau 1.5s)";
+      secondaryBtn.className = "w-full py-2 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition";
+      secondaryBtn.setAttribute("onclick", "closeScanResultModal(true)");
+      secondaryBtn.classList.remove("hidden");
+    }
   } else if (opts.type === "checkout") {
     // TRƯỜNG HỢP 2: QUÉT CHECK-OUT THÀNH CÔNG (Xe rời bãi)
     card.className = "bg-white rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border-[3px] border-blue-500 space-y-4 animate-slide-up text-center relative overflow-hidden";
@@ -2126,6 +2200,10 @@ function onBarcodeScannedSuccess(rawCode, fromLiveCamera = false) {
     renderStudentDatabaseTable();
     renderCampusMapViews();
     renderMobileStudentApp();
+    if (APP_ROLE === "student") {
+      renderStudentParkingTab();
+      renderStudentNotificationsTab();
+    }
 
     // Hiển thị Popup thông báo kết quả + Vị trí bãi đỗ xe ngay trên màn hình
     showScanResultModal({
@@ -2274,8 +2352,7 @@ function simulateStrangerScan() {
 
 function updateScanStatusBanner(isSuccess, message) {
   const banner = document.getElementById("scan-status-banner");
-  const textEl = document.getElementById("scan-status-text");
-  if (!banner || !textEl) return;
+  if (!banner) return;
 
   if (isSuccess) {
     banner.className = "flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 font-extrabold text-xs sm:text-sm";
@@ -3039,22 +3116,31 @@ function updateWeatherWidgetUI() {
   const rainEl = document.getElementById("weather-rain-text");
   const widget = document.getElementById("header-weather-widget");
   const btnFlood = document.getElementById("btn-trigger-flood");
+  const headerFloodBtn = document.getElementById("header-flood-trigger-btn");
 
   if (isFloodSimActive) {
-    if (tempEl) tempEl.textContent = "24°C • Mưa rất to";
-    if (rainEl) rainEl.textContent = "Cảnh báo ngập: 98%";
-    if (widget) widget.className = "cursor-pointer bg-red-50 border border-red-300 rounded-xl px-3 py-1.5 flex items-center gap-2.5 animate-pulse";
+    if (tempEl) tempEl.textContent = "24°C • Mưa to";
+    if (rainEl) rainEl.textContent = "Ngập: 98%";
+    if (widget) widget.className = "cursor-pointer bg-red-50 border border-red-300 rounded-xl px-2.5 py-1 flex items-center gap-2 animate-pulse";
     if (btnFlood) {
       btnFlood.innerHTML = `<i data-lucide="sun" class="w-4 h-4 shrink-0"></i><span>☀️ Tắt giả lập mưa ngập (Khôi phục thời tiết)</span>`;
       btnFlood.className = "w-full py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs flex items-center justify-center gap-2 shadow-md transition";
     }
+    if (headerFloodBtn) {
+      headerFloodBtn.innerHTML = `<span>☀️ Tắt Cảnh báo Ngập</span>`;
+      headerFloodBtn.className = "bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1.5 rounded-xl text-[11px] font-extrabold shadow-sm flex items-center gap-1 transition active:scale-95";
+    }
   } else {
     if (tempEl) tempEl.textContent = "28°C";
-    if (rainEl) rainEl.textContent = "Khả năng mưa: 80%";
-    if (widget) widget.className = "cursor-pointer bg-[#eef6ff] hover:bg-blue-100/80 border border-blue-200/70 rounded-xl px-3 py-1.5 flex items-center gap-2.5 transition";
+    if (rainEl) rainEl.textContent = "Mưa: 80%";
+    if (widget) widget.className = "cursor-pointer bg-[#eef6ff] hover:bg-blue-100/80 border border-blue-200/70 rounded-xl px-2.5 py-1 flex items-center gap-2 transition";
     if (btnFlood) {
       btnFlood.innerHTML = `<i data-lucide="cloud-rain-wind" class="w-4 h-4 shrink-0"></i><span>🌧️ Giả lập Mưa lớn & Ngập nước bãi ngoài trời</span>`;
       btnFlood.className = "w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-[#f26f21] to-red-600 hover:from-orange-600 hover:to-red-700 text-white font-extrabold text-xs flex items-center justify-center gap-2 shadow-md transition active:scale-95";
+    }
+    if (headerFloodBtn) {
+      headerFloodBtn.innerHTML = `<span>🌧️ Cảnh báo Mưa/Ngập</span>`;
+      headerFloodBtn.className = "bg-gradient-to-r from-[#f26f21] to-red-600 hover:opacity-95 text-white px-2.5 py-1.5 rounded-xl text-[11px] font-extrabold shadow-sm flex items-center gap-1 transition active:scale-95";
     }
   }
   if (window.lucide) lucide.createIcons();
@@ -3071,6 +3157,7 @@ function acceptFloodRelocationFromBanner() {
 }
 
 function acceptFloodRelocationFromMobile() {
+  unlockAudioAndSpeech();
   relocateStudentToCoveredKhuA(currentMobileStudentMssv);
 }
 
@@ -3118,17 +3205,38 @@ function relocateStudentToCoveredKhuA(mssv) {
   const mobileFloodCard = document.getElementById("mobile-flood-alert-card");
   if (mobileFloodCard) mobileFloodCard.classList.add("hidden");
   dismissPushBanner();
+  dismissStudentFloodModal();
 
+  const spokenSlot = formatSlotCodeForSpeech(emptySlot.code);
   playFeedbackBeep(true);
-  speakVietnamese(`Đã tự động điều phối và giữ chỗ mới tại ô ${emptySlot.code} Nhà xe Khu A cho sinh viên ${stu.hoTen}`);
+  speakVietnamese(`Đã tự động điều phối và giữ chỗ mới tại ô ${spokenSlot}, Bãi đỗ xe Khu A có mái che cho sinh viên ${stu.hoTen}.`);
 
   // Chuyển sơ đồ về Khu A và highlight ô mới
+  studentSelectedZoneId = "khu-a";
+  studentSelectedFreeSlotCode = null;
   selectParkingZone("khu-a");
   selectSlot(emptySlot.code);
   renderKPICards();
   renderRecentActivityTable();
   renderStudentDatabaseTable();
   renderMobileStudentApp();
+  if (APP_ROLE === "student") {
+    renderStudentParkingTab();
+    renderStudentNotificationsTab();
+    showScanResultModal({
+      type: "checkin",
+      customTitle: "ĐÃ CHUYỂN SANG KHU A AN TOÀN",
+      customSubtitle: "Hệ thống đã giữ chỗ mới có mái che tránh mưa ngập cho bạn",
+      customHeading: "☔ VỊ TRÍ CÓ MÁI CHE MỚI CỦA BẠN",
+      customTimeLabel: "Thời gian giữ chỗ:",
+      hideSecondaryBtn: true,
+      hoTen: stu.hoTen,
+      mssv: stu.mssv,
+      bienSo: stu.bienSo,
+      slotId: emptySlot.code,
+      zoneFullLabel: "Bãi đỗ xe Khu A - Nhà xe có mái che"
+    });
+  }
 
   publishCloudSyncState({
     type: "flood_relocate",
@@ -3138,7 +3246,7 @@ function relocateStudentToCoveredKhuA(mssv) {
 }
 
 // ==========================================================================
-// 13. GIAO DIỆN [📱 APP SINH VIÊN] & THẺ MÃ VẠCH ĐIỆN TỬ UEH STUDENT
+// 13. GIAO DIỆN ĐỘC LẬP [📱 APP SINH VIÊN (/)] & 4 TAB BOTTOM NAV MOBILE-FIRST
 // ==========================================================================
 function switchAppMode(mode) {
   currentAppViewMode = mode === "student" ? "student" : "admin";
@@ -3146,18 +3254,20 @@ function switchAppMode(mode) {
   const studentView = document.getElementById("student-app-view");
   const btnAdmin = document.getElementById("btn-mode-admin");
   const btnStudent = document.getElementById("btn-mode-student");
+  // Ở phiên bản tách 2 đường link độc lập (/ và /admin), các nút chuyển đổi không cùng tồn tại
+  if (!adminView || !studentView) return;
 
   if (mode === "student") {
     adminView.classList.add("hidden");
     studentView.classList.remove("hidden");
-    btnStudent.className = "px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all bg-[#f26f21] text-white shadow-sm";
-    btnAdmin.className = "px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all text-slate-600 hover:text-slate-900";
+    if (btnStudent) btnStudent.className = "px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all bg-[#f26f21] text-white shadow-sm";
+    if (btnAdmin) btnAdmin.className = "px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all text-slate-600 hover:text-slate-900";
     renderMobileStudentApp();
   } else {
     studentView.classList.add("hidden");
     adminView.classList.remove("hidden");
-    btnAdmin.className = "px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all bg-[#005f69] text-white shadow-sm";
-    btnStudent.className = "px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all text-slate-600 hover:text-slate-900";
+    if (btnAdmin) btnAdmin.className = "px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all bg-[#005f69] text-white shadow-sm";
+    if (btnStudent) btnStudent.className = "px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all text-slate-600 hover:text-slate-900";
     render20SlotGrid();
   }
 }
@@ -3193,6 +3303,46 @@ function populateStudentDropdowns() {
 function onSwitchMobileStudent(mssv) {
   currentMobileStudentMssv = mssv;
   renderMobileStudentApp();
+  renderStudentParkingTab();
+  renderStudentNotificationsTab();
+}
+
+function switchStudentTab(tabName) {
+  const validTabs = ["scan", "parking", "card", "alerts"];
+  if (!validTabs.includes(tabName)) return;
+
+  // Tắt camera nếu người dùng rời khỏi tab Quét Mã để tiết kiệm pin và tránh quét nhầm
+  if (currentStudentTab === "scan" && tabName !== "scan" && isCameraRunning) {
+    stopCameraScanner();
+  }
+
+  currentStudentTab = tabName;
+
+  validTabs.forEach(t => {
+    const sec = document.getElementById(`student-tab-${t}`);
+    const navBtn = document.getElementById(`student-nav-${t}`);
+    if (sec) {
+      if (t === tabName) sec.classList.remove("hidden");
+      else sec.classList.add("hidden");
+    }
+    if (navBtn) {
+      if (t === tabName) {
+        navBtn.className = "relative flex flex-col items-center justify-center py-1.5 px-1 rounded-2xl bg-teal-50 text-[#005f69] font-extrabold text-[11px] transition";
+      } else {
+        navBtn.className = "relative flex flex-col items-center justify-center py-1.5 px-1 rounded-2xl text-slate-500 hover:bg-slate-50 font-bold text-[11px] transition";
+      }
+    }
+  });
+
+  if (tabName === "parking") {
+    renderStudentParkingTab();
+  } else if (tabName === "card" || tabName === "scan") {
+    renderMobileStudentApp();
+  } else if (tabName === "alerts") {
+    renderStudentNotificationsTab();
+  }
+
+  if (window.lucide) lucide.createIcons();
 }
 
 function renderMobileStudentApp() {
@@ -3204,8 +3354,20 @@ function renderMobileStudentApp() {
     if (el) el.textContent = val;
   };
 
+  const initials = getInitials(stu.hoTen);
+
+  // Cập nhật thanh tóm tắt nhanh ở Tab 1 (Quét Mã)
+  setTxt("student-home-avatar", initials);
+  setTxt("student-home-name", stu.hoTen);
+  setTxt("student-home-plate", stu.bienSo);
+  setTxt("student-home-model", stu.dongXe);
+  setTxt("student-home-slot-badge", `Ô ${stu.oDo || "Chưa có"}`);
+
+  const homeStatusEl = document.getElementById("student-home-status-badge");
+
+  // Cập nhật Thẻ UEH điện tử ở Tab 3 (Thẻ UEH)
   setTxt("mobile-student-name", stu.hoTen);
-  setTxt("mobile-avatar-box", getInitials(stu.hoTen));
+  setTxt("mobile-avatar-box", initials);
   setTxt("mobile-card-name", stu.hoTen);
   setTxt("mobile-card-mssv", stu.mssv);
   setTxt("mobile-card-dob", stu.ngaySinh);
@@ -3215,61 +3377,352 @@ function renderMobileStudentApp() {
 
   const pillEl = document.getElementById("mobile-parking-status-pill");
   const statusTxtEl = document.getElementById("mobile-current-status-text");
+
   if (isStudentParked(stu.trangThaiGui)) {
     if (pillEl) {
       pillEl.textContent = "Đang sử dụng";
-      pillEl.className = "px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-100 text-blue-700";
+      pillEl.className = "px-3 py-1 rounded-full text-xs font-extrabold bg-blue-100 text-blue-700 shadow-sm";
+    }
+    if (homeStatusEl) {
+      homeStatusEl.textContent = "Đang đỗ";
+      homeStatusEl.className = "inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700";
     }
     if (statusTxtEl) {
-      statusTxtEl.textContent = "Phương tiện đang đỗ an toàn trong bãi";
-      statusTxtEl.className = "font-bold text-blue-700";
+      statusTxtEl.textContent = "Đang đỗ trong bãi";
+      statusTxtEl.className = "text-[11px] font-bold text-blue-700 truncate";
     }
   } else if (stu.trangThaiGui === "Đặt trước") {
     if (pillEl) {
       pillEl.textContent = "Đặt trước";
-      pillEl.className = "px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-orange-100 text-[#f26f21]";
+      pillEl.className = "px-3 py-1 rounded-full text-xs font-extrabold bg-orange-100 text-[#f26f21] shadow-sm";
+    }
+    if (homeStatusEl) {
+      homeStatusEl.textContent = "Đặt trước";
+      homeStatusEl.className = "inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-orange-100 text-[#f26f21]";
     }
     if (statusTxtEl) {
-      statusTxtEl.textContent = "Đã giữ chỗ trước (Chờ xe vào ô)";
-      statusTxtEl.className = "font-bold text-[#f26f21]";
+      statusTxtEl.textContent = "Đã giữ chỗ trước";
+      statusTxtEl.className = "text-[11px] font-bold text-[#f26f21] truncate";
     }
   } else {
     if (pillEl) {
       pillEl.textContent = "Đã lấy xe";
-      pillEl.className = "px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-600";
+      pillEl.className = "px-3 py-1 rounded-full text-xs font-extrabold bg-slate-100 text-slate-600 shadow-sm";
+    }
+    if (homeStatusEl) {
+      homeStatusEl.textContent = "Chưa gửi";
+      homeStatusEl.className = "inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600";
     }
     if (statusTxtEl) {
-      statusTxtEl.textContent = "Chưa gửi xe trong bãi";
-      statusTxtEl.className = "font-bold text-slate-600";
+      statusTxtEl.textContent = "Chưa gửi trong bãi";
+      statusTxtEl.className = "text-[11px] font-bold text-slate-500 truncate";
     }
   }
 
-  // Render scannable CODE_128 barcode for this student
+  // Render mã vạch CODE_128 sắc nét trên Tab 3
   renderSafeJsBarcode("#mobile-student-barcode", stu.mssv, {
     format: "CODE128",
     lineColor: "#000000",
-    width: 2,
-    height: 52,
+    width: 2.1,
+    height: 62,
     displayValue: true,
-    fontSize: 13,
+    fontSize: 14,
     fontOptions: "bold",
-    margin: 4
+    margin: 6
   });
 
-  // Populate available slots in Khu A for booking
-  const availSelect = document.getElementById("mobile-available-slots-select");
-  if (availSelect) {
-    const khuASlots = (parkingZones["khu-a"] || []).filter(s => s.status === "free");
-    if (khuASlots.length > 0) {
-      availSelect.innerHTML = khuASlots.map(s =>
-        `<option value="${s.code}">Ô trống ${s.code} - Khu A (Có mái che)</option>`
-      ).join("");
+  // Cập nhật trạng thái chấm đỏ thông báo mưa ngập trên thanh Bottom Nav
+  const notifDot = document.getElementById("mobile-notif-tab-badge");
+  const mobileFloodCard = document.getElementById("mobile-flood-alert-card");
+  if (notifDot) {
+    if (isFloodSimActive) notifDot.classList.remove("hidden");
+    else notifDot.classList.add("hidden");
+  }
+  if (mobileFloodCard) {
+    if (isFloodSimActive) mobileFloodCard.classList.remove("hidden");
+    else mobileFloodCard.classList.add("hidden");
+  }
+
+  if (window.lucide) lucide.createIcons();
+}
+
+function renderStudentParkingTab() {
+  const zoneSelect = document.getElementById("student-zone-select");
+  const gridEl = document.getElementById("student-parking-grid");
+  if (!zoneSelect || !gridEl) return;
+
+  // Populate 7 UEH Mekong zones
+  zoneSelect.innerHTML = PARKING_ZONES_META.map(z =>
+    `<option value="${z.id}" ${z.id === studentSelectedZoneId ? "selected" : ""}>🅿️ ${z.name}</option>`
+  ).join("");
+
+  const zoneMeta = PARKING_ZONES_META.find(z => z.id === studentSelectedZoneId) || PARKING_ZONES_META[0];
+  const slots = parkingZones[zoneMeta.id] || [];
+  const freeCount = slots.filter(s => s.status === "free").length;
+
+  const roofBadge = document.getElementById("student-zone-roof-badge");
+  const availEl = document.getElementById("student-zone-avail-count");
+
+  if (roofBadge) {
+    if (isFloodSimActive && zoneMeta.floodRisk) {
+      roofBadge.textContent = "⚠️ Nguy cơ ngập";
+      roofBadge.className = "px-2.5 py-1 rounded-xl text-[11px] font-extrabold bg-red-600 text-white animate-pulse";
+    } else if (zoneMeta.roofType === "indoor") {
+      roofBadge.textContent = "🏠 Có mái che";
+      roofBadge.className = "px-2.5 py-1 rounded-xl text-[11px] font-extrabold bg-[#005f69] text-white";
     } else {
-      availSelect.innerHTML = `<option value="">Hết ô trống tại Khu A</option>`;
+      roofBadge.textContent = "☀️ Ngoài trời";
+      roofBadge.className = "px-2.5 py-1 rounded-xl text-[11px] font-extrabold bg-[#f26f21] text-white";
+    }
+  }
+
+  if (availEl) {
+    availEl.textContent = `Còn ${freeCount}/${slots.length} ô trống`;
+    availEl.className = freeCount > 0 ? "text-xs font-extrabold text-emerald-700" : "text-xs font-extrabold text-red-600";
+  }
+
+  // Render compact mobile 20-slot grid
+  gridEl.innerHTML = slots.map(slot => {
+    const isPicked = studentSelectedFreeSlotCode === slot.code && slot.status === "free";
+    const isMine = slot.studentMssv && slot.studentMssv === currentMobileStudentMssv;
+
+    let cardStyle = "bg-emerald-50 border-emerald-400 text-emerald-800 hover:bg-emerald-100 cursor-pointer";
+    let label = "Trống";
+    let iconName = "bike";
+
+    if (slot.status === "occupied") {
+      cardStyle = isMine
+        ? "bg-blue-600 border-blue-800 text-white ring-2 ring-blue-300"
+        : "bg-blue-100 border-blue-300 text-blue-800 opacity-85";
+      label = isMine ? "Xe bạn" : "Đã đỗ";
+    } else if (slot.status === "reserved") {
+      cardStyle = isMine
+        ? "bg-[#f26f21] border-orange-700 text-white ring-2 ring-orange-300"
+        : "bg-orange-100 border-orange-300 text-[#f26f21] opacity-90";
+      label = isMine ? "Bạn đặt" : "Đặt trước";
+    } else if (slot.status === "unavailable") {
+      cardStyle = "bg-red-100 border-red-400 text-red-700 opacity-90";
+      label = (isFloodSimActive && slot.note && slot.note.includes("ngập")) ? "Ngập" : "Khóa";
+      iconName = "ban";
+    }
+
+    if (isPicked) {
+      cardStyle = "bg-emerald-600 border-[#f26f21] text-white ring-4 ring-orange-300 scale-[1.03] shadow-md cursor-pointer";
+      label = "Đang chọn";
+    }
+
+    return `
+      <button type="button" onclick="onStudentTapSlot('${slot.code}')"
+              class="rounded-xl border-2 p-2 flex flex-col items-center justify-center gap-0.5 transition active:scale-95 ${cardStyle}">
+        <span class="text-xs font-black leading-none">${slot.code}</span>
+        <i data-lucide="${iconName}" class="w-4 h-4 my-0.5"></i>
+        <span class="text-[9px] font-extrabold leading-none truncate max-w-full">${label}</span>
+      </button>
+    `;
+  }).join("");
+
+  // Show or hide the big [Đặt chỗ trước ngay] booking bar
+  const bookingBar = document.getElementById("student-booking-bar");
+  const selectedTitle = document.getElementById("student-selected-slot-title");
+  const pickedSlot = slots.find(s => s.code === studentSelectedFreeSlotCode && s.status === "free");
+
+  if (bookingBar) {
+    if (pickedSlot) {
+      bookingBar.classList.remove("hidden");
+      if (selectedTitle) {
+        selectedTitle.textContent = `Ô ${pickedSlot.code} • ${zoneMeta.name.replace(/^\d+\.\s*/, "")}`;
+      }
+    } else {
+      bookingBar.classList.add("hidden");
+      studentSelectedFreeSlotCode = null;
     }
   }
 
   if (window.lucide) lucide.createIcons();
+}
+
+function onStudentSelectZone(zoneId) {
+  if (!parkingZones[zoneId]) return;
+  studentSelectedZoneId = zoneId;
+  studentSelectedFreeSlotCode = null;
+  renderStudentParkingTab();
+}
+
+function onStudentTapSlot(slotCode) {
+  unlockAudioAndSpeech();
+  const slots = parkingZones[studentSelectedZoneId] || [];
+  const slot = slots.find(s => s.code === slotCode);
+  if (!slot) return;
+
+  if (slot.status === "free") {
+    studentSelectedFreeSlotCode = (studentSelectedFreeSlotCode === slotCode) ? null : slotCode;
+    renderStudentParkingTab();
+  } else {
+    studentSelectedFreeSlotCode = null;
+    renderStudentParkingTab();
+  }
+}
+
+function studentBookSelectedSlotOnMap() {
+  unlockAudioAndSpeech();
+  if (!studentSelectedFreeSlotCode) return;
+
+  const stu = students.find(s => s.mssv === currentMobileStudentMssv) || students[0];
+  if (!stu) return;
+
+  const slots = parkingZones[studentSelectedZoneId] || [];
+  const slot = slots.find(s => s.code === studentSelectedFreeSlotCode);
+  if (!slot || slot.status !== "free") {
+    alert("Ô đỗ này vừa có người khác chọn. Vui lòng chọn ô màu xanh lá khác!");
+    studentSelectedFreeSlotCode = null;
+    renderStudentParkingTab();
+    return;
+  }
+
+  // Giải phóng ô cũ nếu sinh viên đang giữ chỗ/đỗ ở ô khác
+  const wasParked = isStudentParked(stu.trangThaiGui);
+  const wasReserved = stu.trangThaiGui === "Đặt trước";
+  freeStudentSlot(stu.mssv, stu.oDo);
+  if (wasParked) {
+    kpiStats.occupied = Math.max(0, kpiStats.occupied - 1);
+    kpiStats.free += 1;
+  } else if (wasReserved) {
+    kpiStats.reserved = Math.max(0, kpiStats.reserved - 1);
+    kpiStats.free += 1;
+  }
+
+  // Đặt chỗ ô mới
+  slot.status = "reserved";
+  slot.studentMssv = stu.mssv;
+  slot.studentName = stu.hoTen;
+  slot.licensePlate = stu.bienSo;
+  slot.vehicleType = stu.loaiXe || "Xe máy";
+  slot.note = `Đặt trước từ App Sinh viên (${stu.dongXe})`;
+
+  stu.oDo = slot.code;
+  stu.trangThaiGui = "Đặt trước";
+  saveDatabase();
+
+  kpiStats.free = Math.max(0, kpiStats.free - 1);
+  kpiStats.reserved += 1;
+
+  const cleanZoneName = getZoneDisplayNameBySlotCode(slot.code);
+  const fullZoneLabel = getFullZoneLabelWithRoofBySlotCode(slot.code);
+
+  addActivityLog({
+    vehicle: stu.loaiXe || "Xe máy",
+    plate: stu.bienSo,
+    studentName: stu.hoTen,
+    mssv: stu.mssv,
+    slot: slot.code,
+    status: "Đặt trước",
+    badgeType: "reserved",
+    detail: `Sinh viên đặt chỗ trước ô ${slot.code} (${cleanZoneName}) từ App`
+  });
+
+  const bookedCode = slot.code;
+  studentSelectedFreeSlotCode = null;
+
+  const spokenSlot = formatSlotCodeForSpeech(bookedCode);
+  playFeedbackBeep(true);
+  speakVietnamese(`Đã đặt chỗ trước thành công tại ô ${spokenSlot}, ${cleanZoneName}.`);
+
+  renderMobileStudentApp();
+  renderStudentParkingTab();
+  renderStudentNotificationsTab();
+
+  showScanResultModal({
+    type: "checkin",
+    customTitle: "ĐẶT CHỖ TRƯỚC THÀNH CÔNG",
+    customSubtitle: "Ô đỗ của bạn đã được đồng bộ màu Cam lên bản đồ Admin",
+    customHeading: "🟠 VỊ TRÍ BẠN VỪA ĐẶT TRƯỚC",
+    customTimeLabel: "Thời gian đặt chỗ:",
+    hideSecondaryBtn: true,
+    hoTen: stu.hoTen,
+    mssv: stu.mssv,
+    bienSo: stu.bienSo,
+    slotId: bookedCode,
+    zoneFullLabel: fullZoneLabel
+  });
+
+  publishCloudSyncState({
+    type: "reserve",
+    slotCode: bookedCode,
+    studentMssv: stu.mssv
+  });
+}
+
+function renderStudentNotificationsTab() {
+  const listEl = document.getElementById("student-notifications-list");
+  const mobileFloodCard = document.getElementById("mobile-flood-alert-card");
+  const notifDot = document.getElementById("mobile-notif-tab-badge");
+
+  if (mobileFloodCard) {
+    if (isFloodSimActive) mobileFloodCard.classList.remove("hidden");
+    else mobileFloodCard.classList.add("hidden");
+  }
+  if (notifDot) {
+    if (isFloodSimActive) notifDot.classList.remove("hidden");
+    else notifDot.classList.add("hidden");
+  }
+
+  if (!listEl) return;
+
+  const alertsHTML = systemAlerts.map(a => {
+    const isDanger = a.type === "flood" || a.type === "security" || a.title.includes("KHẨN");
+    return `
+      <div class="p-3 rounded-2xl border ${isDanger ? "bg-red-50 border-red-200" : "bg-slate-50 border-slate-200"} flex items-start gap-2.5">
+        <div class="p-2 rounded-xl ${isDanger ? "bg-red-100 text-red-600" : "bg-teal-100 text-[#005f69]"} shrink-0">
+          <i data-lucide="${a.icon || "bell"}" class="w-4 h-4"></i>
+        </div>
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center justify-between gap-2">
+            <div class="font-extrabold text-xs text-slate-900 leading-snug">${a.title}</div>
+            <span class="text-[10px] font-bold text-slate-400 shrink-0">${a.time}</span>
+          </div>
+          <p class="text-[11px] text-slate-600 mt-1 leading-relaxed">${a.desc}</p>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  const myLogs = activityLogs.filter(l => l.mssv === currentMobileStudentMssv).slice(0, 5);
+  const myLogsHTML = myLogs.map(log => `
+    <div class="p-3 rounded-2xl border border-slate-200 bg-white flex items-start gap-2.5">
+      <div class="p-2 rounded-xl bg-orange-50 text-[#f26f21] shrink-0">
+        <i data-lucide="history" class="w-4 h-4"></i>
+      </div>
+      <div class="min-w-0 flex-1">
+        <div class="flex items-center justify-between gap-2">
+          <div class="font-extrabold text-xs text-slate-800">Ô ${log.slot} • ${log.status}</div>
+          <span class="text-[10px] font-bold text-slate-400">${log.time}</span>
+        </div>
+        <p class="text-[11px] text-slate-500 mt-0.5">${log.detail || ""}</p>
+      </div>
+    </div>
+  `).join("");
+
+  listEl.innerHTML = alertsHTML + (myLogsHTML ? `<div class="pt-2 text-[11px] font-extrabold text-slate-400 uppercase tracking-wider">Hoạt động gần đây của bạn</div>${myLogsHTML}` : "");
+  if (window.lucide) lucide.createIcons();
+}
+
+function showStudentFloodPopupModal() {
+  const modal = document.getElementById("student-flood-popup-modal");
+  if (modal) modal.classList.remove("hidden");
+  renderStudentNotificationsTab();
+  if (window.lucide) lucide.createIcons();
+}
+
+function dismissStudentFloodModal() {
+  const modal = document.getElementById("student-flood-popup-modal");
+  if (modal) modal.classList.add("hidden");
+}
+
+function downloadActiveMobileStudentBarcodePNG() {
+  const stu = students.find(s => s.mssv === currentMobileStudentMssv) || students[0];
+  if (stu) {
+    downloadStudentBarcodeAsPNG(stu);
+  }
 }
 
 function triggerScanFromMobileApp() {
@@ -3339,6 +3792,7 @@ function toggleInlineCampusMap(forceState) {
   const gridContainer = document.getElementById("parking-20-grid-container");
   const mapContainer = document.getElementById("inline-campus-map-container");
   const labelEl = document.getElementById("btn-toggle-campus-label");
+  if (!gridContainer || !mapContainer) return;
 
   if (isInlineCampusMapOpen) {
     gridContainer.classList.add("hidden");
@@ -3566,17 +4020,18 @@ function switchCampusMapDisplay(mode) {
   const imgEl = document.getElementById("full-campus-map-image");
   const btnDig = document.getElementById("btn-campus-mode-digital");
   const btnImg = document.getElementById("btn-campus-mode-image");
+  if (!digitalEl || !imgEl) return;
 
   if (mode === "image") {
     digitalEl.classList.add("hidden");
     imgEl.classList.remove("hidden");
-    btnImg.className = "px-3 py-2 rounded-xl text-xs font-bold bg-[#005f69] text-white shadow-sm";
-    btnDig.className = "px-3 py-2 rounded-xl text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200";
+    if (btnImg) btnImg.className = "px-3 py-2 rounded-xl text-xs font-bold bg-[#005f69] text-white shadow-sm";
+    if (btnDig) btnDig.className = "px-3 py-2 rounded-xl text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200";
   } else {
     imgEl.classList.add("hidden");
     digitalEl.classList.remove("hidden");
-    btnDig.className = "px-3 py-2 rounded-xl text-xs font-bold bg-[#005f69] text-white shadow-sm";
-    btnImg.className = "px-3 py-2 rounded-xl text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200";
+    if (btnDig) btnDig.className = "px-3 py-2 rounded-xl text-xs font-bold bg-[#005f69] text-white shadow-sm";
+    if (btnImg) btnImg.className = "px-3 py-2 rounded-xl text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200";
   }
 }
 
@@ -4016,6 +4471,7 @@ function downloadStudentBarcodeAsPNG(stu) {
 function renderSafeJsBarcode(selector, value, options) {
   if (typeof JsBarcode === "undefined") return;
   try {
+    if (typeof selector === "string" && !document.querySelector(selector)) return;
     JsBarcode(selector, String(value || "31251570287"), options);
   } catch (e) {
     console.warn("JsBarcode error:", e);
